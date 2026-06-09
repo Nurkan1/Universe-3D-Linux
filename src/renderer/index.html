@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>3D Universe</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <!-- Top bar: search + layout controls + window buttons -->
+  <header id="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>3D&nbsp;UNIVERSE</span>
+    </div>
+
+    <input id="search" type="text" placeholder="Search apps…  ( / )" autocomplete="off" />
+
+    <div id="layouts" class="segmented">
+      <button data-layout="galaxy"  class="active" title="Spiral galaxy">🌌 Galaxy</button>
+      <button data-layout="sphere"  title="Sphere">🪐 Sphere</button>
+      <button data-layout="rings"   title="Rings by category">💍 Rings</button>
+      <button data-layout="grid"    title="Grid">▦ Grid</button>
+    </div>
+
+    <label class="toggle" title="Show hidden apps (NoDisplay)">
+      <input id="show-hidden" type="checkbox" checked />
+      <span>Hidden</span>
+    </label>
+
+    <div class="win-buttons">
+      <button id="btn-record" title="Record screen">⏺</button>
+      <button id="btn-settings" title="Settings">⚙</button>
+      <button id="btn-min" title="Minimize">—</button>
+      <button id="btn-close" title="Hide (Esc)">✕</button>
+    </div>
+  </header>
+
+  <!-- Settings panel (deep visual tuning) -->
+  <aside id="settings-panel" class="hidden">
+    <h3>⚙ Settings</h3>
+
+    <section>
+      <h4>Glow &amp; Bloom</h4>
+      <label>Bloom strength
+        <input type="range" data-key="bloomStrength" min="0" max="2.5" step="0.05" />
+        <span class="val"></span>
+      </label>
+      <label>Bloom radius
+        <input type="range" data-key="bloomRadius" min="0" max="1.5" step="0.05" />
+        <span class="val"></span>
+      </label>
+      <label>Bloom threshold
+        <input type="range" data-key="bloomThreshold" min="0" max="1" step="0.02" />
+        <span class="val"></span>
+      </label>
+      <label>Sun glow
+        <input type="range" data-key="sunGlow" min="0" max="1.5" step="0.05" />
+        <span class="val"></span>
+      </label>
+      <label>Planet glow
+        <input type="range" data-key="planetGlow" min="0" max="2" step="0.05" />
+        <span class="val"></span>
+      </label>
+    </section>
+
+    <section>
+      <h4>Background</h4>
+      <label>Star brightness
+        <input type="range" data-key="starBrightness" min="0" max="1" step="0.05" />
+        <span class="val"></span>
+      </label>
+      <label>Nebula opacity
+        <input type="range" data-key="nebulaOpacity" min="0" max="1" step="0.05" />
+        <span class="val"></span>
+      </label>
+    </section>
+
+    <section>
+      <h4>Sound</h4>
+      <label>SFX volume
+        <input type="range" data-key="sfxVolume" min="0" max="1" step="0.05" />
+        <span class="val"></span>
+      </label>
+    </section>
+
+    <section>
+      <h4>Motion</h4>
+      <label>Auto-rotate speed
+        <input type="range" data-key="rotateSpeed" min="0" max="2" step="0.05" />
+        <span class="val"></span>
+      </label>
+      <label>Warp speed
+        <input type="range" data-key="warpSpeed" min="0.5" max="4" step="0.1" />
+        <span class="val"></span>
+      </label>
+    </section>
+
+    <button id="settings-reset">Reset to defaults</button>
+  </aside>
+
+  <!-- Recording indicator -->
+  <div id="rec-indicator" class="hidden">
+    <span class="rec-dot"></span>
+    <span id="rec-time">0:00</span>
+  </div>
+
+  <!-- Toast: shown when a recording is saved -->
+  <div id="toast" class="hidden">
+    <span id="toast-text"></span>
+    <button id="toast-open">Show in folder</button>
+    <button id="toast-close">✕</button>
+  </div>
+
+  <!-- Hover tooltip for the focused planet -->
+  <div id="tooltip" class="hidden">
+    <img id="tooltip-icon" alt="" />
+    <div>
+      <div id="tooltip-name"></div>
+      <div id="tooltip-comment"></div>
+    </div>
+  </div>
+
+  <footer id="hint">click: launch · right-click / F: favorite · arrows + Enter: navigate · dbl-click sun: absorb / expel · / search · Esc: hide</footer>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../../node_modules/three/build/three.module.js",
+        "three/addons/": "../../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="universe.js"></script>
+</body>
+</html>
