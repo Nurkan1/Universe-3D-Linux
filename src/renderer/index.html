@@ -24,22 +24,43 @@
       <button data-layout="grid"    title="Grid">▦ Grid</button>
     </div>
 
+    <select id="category-filter" title="Filter by category">
+      <option value="">All categories</option>
+    </select>
+
     <label class="toggle" title="Show hidden apps (NoDisplay)">
       <input id="show-hidden" type="checkbox" checked />
       <span>Hidden</span>
     </label>
 
+    <label class="toggle" title="Show favorites only">
+      <input id="fav-only" type="checkbox" />
+      <span>★</span>
+    </label>
+
     <div class="win-buttons">
-      <button id="btn-record" title="Record screen">⏺</button>
+      <button id="btn-monitor" title="System monitor">📊</button>
+      <button id="btn-terminal" title="Run command / terminal ( ` )">⌨</button>
       <button id="btn-settings" title="Settings">⚙</button>
       <button id="btn-min" title="Minimize">—</button>
       <button id="btn-close" title="Hide (Esc)">✕</button>
     </div>
   </header>
 
-  <!-- Settings panel (deep visual tuning) -->
+  <!-- Settings panel (deep visual tuning + themes) -->
   <aside id="settings-panel" class="hidden">
     <h3>⚙ Settings</h3>
+
+    <section>
+      <h4>Theme</h4>
+      <div id="theme-picker" class="themes">
+        <button data-theme="cosmic"  class="active" title="Cosmic">Cosmic</button>
+        <button data-theme="emerald" title="Emerald">Emerald</button>
+        <button data-theme="sunset"  title="Sunset">Sunset</button>
+        <button data-theme="mono"    title="Monochrome">Mono</button>
+        <button data-theme="matrix"  title="Matrix">Matrix</button>
+      </div>
+    </section>
 
     <section>
       <h4>Glow &amp; Bloom</h4>
@@ -100,16 +121,44 @@
     <button id="settings-reset">Reset to defaults</button>
   </aside>
 
-  <!-- Recording indicator -->
-  <div id="rec-indicator" class="hidden">
-    <span class="rec-dot"></span>
-    <span id="rec-time">0:00</span>
+  <!-- System monitor (live CPU / RAM / network) -->
+  <aside id="monitor-panel" class="hidden">
+    <h3>📊 System Monitor</h3>
+    <div class="mon-row">
+      <span class="mon-label">CPU</span>
+      <div class="mon-bar"><div id="mon-cpu-fill" class="mon-fill"></div></div>
+      <span id="mon-cpu-val" class="mon-val">0%</span>
+    </div>
+    <div id="mon-cores" class="mon-cores"></div>
+    <div class="mon-row">
+      <span class="mon-label">RAM</span>
+      <div class="mon-bar"><div id="mon-mem-fill" class="mon-fill"></div></div>
+      <span id="mon-mem-val" class="mon-val">0%</span>
+    </div>
+    <div class="mon-row">
+      <span class="mon-label">Swap</span>
+      <div class="mon-bar"><div id="mon-swap-fill" class="mon-fill"></div></div>
+      <span id="mon-swap-val" class="mon-val">0%</span>
+    </div>
+    <div class="mon-stats">
+      <div>▼ <span id="mon-rx">0</span></div>
+      <div>▲ <span id="mon-tx">0</span></div>
+      <div>⏱ <span id="mon-uptime">—</span></div>
+      <div>load <span id="mon-load">—</span></div>
+    </div>
+  </aside>
+
+  <!-- Command launcher -->
+  <div id="cmd-panel" class="hidden">
+    <input id="cmd-input" type="text" placeholder="Type a command…  (Enter to run, Esc to close)" autocomplete="off" />
+    <label class="toggle"><input id="cmd-terminal" type="checkbox" checked /><span>In terminal</span></label>
+    <button id="cmd-run">Run</button>
+    <button id="cmd-open-term" title="Open a terminal in home">Terminal</button>
   </div>
 
-  <!-- Toast: shown when a recording is saved -->
+  <!-- Toast: shown when a command runs -->
   <div id="toast" class="hidden">
     <span id="toast-text"></span>
-    <button id="toast-open">Show in folder</button>
     <button id="toast-close">✕</button>
   </div>
 
@@ -122,16 +171,18 @@
     </div>
   </div>
 
-  <footer id="hint">click: launch · right-click / F: favorite · arrows + Enter: navigate · dbl-click sun: absorb / expel · / search · Esc: hide</footer>
+  <footer id="hint">click: launch · right-click / F: favorite · arrows + Enter: navigate · dbl-click sun: absorb / expel · / search · ` command · Esc: hide</footer>
 
   <script type="importmap">
     {
       "imports": {
-        "three": "../../node_modules/three/build/three.module.js",
-        "three/addons/": "../../node_modules/three/examples/jsm/"
+        "three": "./vendor/three/build/three.module.js",
+        "three/addons/": "./vendor/three/jsm/"
       }
     }
   </script>
+  <!-- Bridge must load first so window.universe exists before universe.js runs -->
+  <script src="tauri-bridge.js"></script>
   <script type="module" src="universe.js"></script>
 </body>
 </html>

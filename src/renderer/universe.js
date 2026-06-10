@@ -155,6 +155,8 @@ let focused = null; // keyboard-selected planet
 let visibleSorted = []; // visible planets in layout order (for keyboard nav)
 let currentLayout = 'galaxy';
 let showHidden = true;
+let favOnly = false;
+let categoryFilter = ''; // '' = all categories
 let query = '';
 let warp = null; // { planet, t } active launch animation
 let sunMode = 'normal'; // 'normal' | 'absorbing' | 'absorbed' (black-hole toggle)
@@ -396,7 +398,9 @@ function applyLayout() {
       || p.app.comment.toLowerCase().includes(q)
       || p.app.categories.some((cat) => cat.toLowerCase().includes(q));
     const allowed = showHidden || !p.app.noDisplay;
-    p.mesh.visible = matches && allowed;
+    const favOk = !favOnly || isFav(p.app);
+    const catOk = !categoryFilter || p.app.categories.includes(categoryFilter);
+    p.mesh.visible = matches && allowed && favOk && catOk;
     if (p.mesh.visible) visible.push(p);
   }
   visible.sort((a, b) => sortRank(a) - sortRank(b) || a.app.name.localeCompare(b.app.name));
@@ -529,10 +533,16 @@ function cycleFocus(dir) {
 }
 
 window.addEventListener('keydown', (e) => {
-  const typing = document.activeElement === searchInput;
+  const typing = document.activeElement === searchInput
+    || document.activeElement === cmdInput;
   if (e.key === '/' && !typing) {
     e.preventDefault();
     searchInput.focus();
+    return;
+  }
+  if (e.key === '`' && !typing) {
+    e.preventDefault();
+    toggleCmdPanel();
     return;
   }
   if (e.key === 'Escape') {
@@ -585,6 +595,186 @@ document.getElementById('show-hidden').addEventListener('change', (e) => {
   applyLayout();
 });
 
+// Favorites-only filter
+document.getElementById('fav-only').addEventListener('change', (e) => {
+  favOnly = e.target.checked;
+  applyLayout();
+});
+
+// Category filter dropdown — populated from scanned apps in boot()
+const categorySelect = document.getElementById('category-filter');
+function populateCategories() {
+  const counts = new Map();
+  for (const app of allApps) {
+    for (const cat of app.categories) counts.set(cat, (counts.get(cat) || 0) + 1);
+  }
+  const sorted = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [cat, n] of sorted) {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = `${cat} (${n})`;
+    categorySelect.appendChild(opt);
+  }
+}
+categorySelect.addEventListener('change', () => {
+  categoryFilter = categorySelect.value;
+  applyLayout();
+});
+
+// ---------------------------------------------------------------------------
+// Themes: swap the color palette + CSS accent variables
+// ---------------------------------------------------------------------------
+const THEMES = {
+  cosmic:  { palette: [0x7c8cff, 0x5eead4, 0xf472b6, 0xfbbf24, 0x60a5fa, 0xa78bfa, 0x34d399, 0xfb7185], accent: '#7c8cff', accent2: '#5eead4', bg: 0x05060f, fog: 0x05060f },
+  emerald: { palette: [0x34d399, 0x10b981, 0x6ee7b7, 0xa7f3d0, 0x059669, 0x2dd4bf, 0x14b8a6, 0x5eead4], accent: '#34d399', accent2: '#a7f3d0', bg: 0x031310, fog: 0x031310 },
+  sunset:  { palette: [0xfb7185, 0xfbbf24, 0xf97316, 0xef4444, 0xf472b6, 0xfacc15, 0xfb923c, 0xe879f9], accent: '#fb7185', accent2: '#fbbf24', bg: 0x14060a, fog: 0x14060a },
+  mono:    { palette: [0xe5e7eb, 0xcbd5e1, 0x94a3b8, 0xf8fafc, 0xd1d5db, 0xa3a3a3, 0xe2e8f0, 0xb0b8c4], accent: '#cbd5e1', accent2: '#f8fafc', bg: 0x0a0a0c, fog: 0x0a0a0c },
+  matrix:  { palette: [0x22c55e, 0x16a34a, 0x4ade80, 0x86efac, 0x15803d, 0x65a30d, 0x84cc16, 0xbbf7d0], accent: '#22c55e', accent2: '#86efac', bg: 0x020805, fog: 0x020805 },
+};
+let currentTheme = 'cosmic';
+
+function applyTheme(name) {
+  const theme = THEMES[name] || THEMES.cosmic;
+  currentTheme = name;
+  // Update CSS accent variables for the glass UI
+  document.documentElement.style.setProperty('--accent', theme.accent);
+  document.documentElement.style.setProperty('--accent-2', theme.accent2);
+  // Scene background + fog
+  scene.background = new THREE.Color(theme.bg);
+  scene.fog.color.setHex(theme.fog);
+  // Recolor every planet from the new palette
+  PALETTE.length = 0;
+  PALETTE.push(...theme.palette);
+  planets.forEach((p, i) => {
+    const color = PALETTE[i % PALETTE.length];
+    p.mesh.material.color.setHex(color);
+    p.mesh.material.emissive.setHex(color);
+  });
+  document.querySelectorAll('#theme-picker button').forEach((b) =>
+    b.classList.toggle('active', b.dataset.theme === name));
+}
+
+document.querySelectorAll('#theme-picker button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    sfx.playClick();
+    applyTheme(btn.dataset.theme);
+    prefs.theme = currentTheme;
+    window.universe.setPrefs(prefs);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// System monitor: poll the Rust backend and paint live bars
+// ---------------------------------------------------------------------------
+const monitorPanel = document.getElementById('monitor-panel');
+const monCpuFill = document.getElementById('mon-cpu-fill');
+const monCpuVal = document.getElementById('mon-cpu-val');
+const monCores = document.getElementById('mon-cores');
+const monMemFill = document.getElementById('mon-mem-fill');
+const monMemVal = document.getElementById('mon-mem-val');
+const monSwapFill = document.getElementById('mon-swap-fill');
+const monSwapVal = document.getElementById('mon-swap-val');
+const monRx = document.getElementById('mon-rx');
+const monTx = document.getElementById('mon-tx');
+const monUptime = document.getElementById('mon-uptime');
+const monLoad = document.getElementById('mon-load');
+let monitorTimer = null;
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${(n / 1024 ** 3).toFixed(1)} GB`;
+}
+function fmtUptime(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+async function pollMonitor() {
+  let s;
+  try { s = await window.universe.systemStats(); } catch { return; }
+  monCpuFill.style.width = `${s.cpu.toFixed(0)}%`;
+  monCpuVal.textContent = `${s.cpu.toFixed(0)}%`;
+  // Per-core mini bars
+  if (monCores.childElementCount !== s.cores.length) {
+    monCores.innerHTML = '';
+    for (let i = 0; i < s.cores.length; i++) {
+      const bar = document.createElement('div');
+      bar.className = 'core-bar';
+      bar.innerHTML = '<div class="core-fill"></div>';
+      monCores.appendChild(bar);
+    }
+  }
+  s.cores.forEach((c, i) => {
+    const fill = monCores.children[i]?.firstElementChild;
+    if (fill) fill.style.height = `${c.toFixed(0)}%`;
+  });
+  monMemFill.style.width = `${s.mem_percent.toFixed(0)}%`;
+  monMemVal.textContent = `${fmtBytes(s.mem_used)} / ${fmtBytes(s.mem_total)}`;
+  const swapPct = s.swap_total ? (s.swap_used / s.swap_total) * 100 : 0;
+  monSwapFill.style.width = `${swapPct.toFixed(0)}%`;
+  monSwapVal.textContent = s.swap_total ? `${fmtBytes(s.swap_used)} / ${fmtBytes(s.swap_total)}` : 'none';
+  monRx.textContent = fmtBytes(s.net_rx);
+  monTx.textContent = fmtBytes(s.net_tx);
+  monUptime.textContent = fmtUptime(s.uptime);
+  monLoad.textContent = s.load_one.toFixed(2);
+}
+
+document.getElementById('btn-monitor').addEventListener('click', () => {
+  sfx.playClick();
+  const showing = monitorPanel.classList.toggle('hidden');
+  if (!showing) {
+    pollMonitor();
+    monitorTimer = setInterval(pollMonitor, 1500);
+  } else {
+    clearInterval(monitorTimer);
+    monitorTimer = null;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Command launcher: run arbitrary commands or open a terminal
+// ---------------------------------------------------------------------------
+const cmdPanel = document.getElementById('cmd-panel');
+const cmdInput = document.getElementById('cmd-input');
+const cmdTerminal = document.getElementById('cmd-terminal');
+
+function toggleCmdPanel(force) {
+  const hide = force === false || (force === undefined && !cmdPanel.classList.contains('hidden'));
+  cmdPanel.classList.toggle('hidden', hide);
+  if (!hide) { cmdInput.value = ''; cmdInput.focus(); }
+}
+
+async function runTypedCommand() {
+  const cmd = cmdInput.value.trim();
+  if (!cmd) return;
+  try {
+    await window.universe.runCommand(cmd, cmdTerminal.checked);
+    showToast(`Ran: ${cmd}`);
+    toggleCmdPanel(false);
+    window.universe.closeWindow();
+  } catch (err) {
+    showToast(`Command failed: ${err}`);
+  }
+}
+
+document.getElementById('btn-terminal').addEventListener('click', () => {
+  sfx.playClick();
+  toggleCmdPanel();
+});
+document.getElementById('cmd-run').addEventListener('click', runTypedCommand);
+document.getElementById('cmd-open-term').addEventListener('click', async () => {
+  await window.universe.openTerminal();
+  toggleCmdPanel(false);
+  window.universe.closeWindow();
+});
+cmdInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); runTypedCommand(); }
+  else if (e.key === 'Escape') { e.preventDefault(); toggleCmdPanel(false); }
+});
+
 // ---------------------------------------------------------------------------
 // Settings panel wiring
 // ---------------------------------------------------------------------------
@@ -630,95 +820,20 @@ document.getElementById('settings-reset').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Screen recording: captures the WebGL canvas directly (never freezes on
-// layout/view changes, unlike X11 window capture), saves a WebM into ~/Videos.
+// Toast notifications (used by the command runner). Screen recording was
+// removed: MediaRecorder + canvas.captureStream on the WebKitGTK webview relies
+// on system GStreamer encoder plugins that are frequently missing or broken,
+// and with the release build's `panic = "abort"` a failure in that pipeline
+// took down the whole app. Removing it keeps the launcher stable and light.
 // ---------------------------------------------------------------------------
-const recordBtn = document.getElementById('btn-record');
-const recIndicator = document.getElementById('rec-indicator');
-const recTime = document.getElementById('rec-time');
 const toast = document.getElementById('toast');
 const toastText = document.getElementById('toast-text');
-
-let recorder = null;
-let recChunks = [];
-let recTimer = null;
-let lastVideoPath = null;
-
-function setRecUi(active) {
-  recordBtn.classList.toggle('recording', active);
-  recordBtn.title = active ? 'Stop recording' : 'Record screen';
-  recordBtn.textContent = active ? '⏹' : '⏺';
-  recIndicator.classList.toggle('hidden', !active);
-}
-
-function startRecTimer() {
-  const t0 = Date.now();
-  recTimer = setInterval(() => {
-    const s = Math.floor((Date.now() - t0) / 1000);
-    recTime.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  }, 500);
-}
 
 function showToast(text) {
   toastText.textContent = text;
   toast.classList.remove('hidden');
 }
 
-async function startRecording() {
-  // Full-screen capture: includes the HTML UI + cursor, and unlike window
-  // capture on X11 it does not freeze when views or window state change
-  const videoStream = await navigator.mediaDevices.getDisplayMedia({
-    audio: false,
-    video: { frameRate: { ideal: 30 } },
-  });
-  // Mix in the app's SFX audio (Web Audio master bus) with the video track
-  const stream = new MediaStream([
-    ...videoStream.getVideoTracks(),
-    ...sfx.getAudioStream().getAudioTracks(),
-  ]);
-  recChunks = [];
-  const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-    ? 'video/webm;codecs=vp9,opus' : 'video/webm';
-  recorder = new MediaRecorder(stream, {
-    mimeType: mime,
-    videoBitsPerSecond: 8_000_000,
-    audioBitsPerSecond: 128_000,
-  });
-  recorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
-  recorder.onstop = async () => {
-    // Stop only the capture tracks; the SFX audio track is shared/reused
-    videoStream.getTracks().forEach((track) => track.stop());
-    clearInterval(recTimer);
-    setRecUi(false);
-    const blob = new Blob(recChunks, { type: 'video/webm' });
-    recChunks = [];
-    const buffer = await blob.arrayBuffer();
-    lastVideoPath = await window.universe.saveVideo(buffer);
-    showToast(`Recording saved: ${lastVideoPath}`);
-  };
-  recorder.start(250); // gather data in small chunks
-  setRecUi(true);
-  recTime.textContent = '0:00';
-  startRecTimer();
-}
-
-recordBtn.addEventListener('click', async () => {
-  sfx.playClick();
-  if (recorder && recorder.state === 'recording') {
-    recorder.stop();
-    recorder = null;
-  } else {
-    try {
-      await startRecording();
-    } catch (err) {
-      showToast(`Could not start recording: ${err.message}`);
-    }
-  }
-});
-
-document.getElementById('toast-open').addEventListener('click', () => {
-  if (lastVideoPath) window.universe.showInFolder(lastVideoPath);
-});
 document.getElementById('toast-close').addEventListener('click', () => {
   toast.classList.add('hidden');
 });
@@ -744,11 +859,14 @@ async function boot() {
   syncSliders();
   applySettings();
   allApps = await window.universe.scanApps();
+  populateCategories();
   // Build planets in small batches so labels (async icons) don't block long
   for (let i = 0; i < allApps.length; i++) {
     planets.push(await makePlanet(allApps[i], i));
     if (i % 12 === 0) applyLayout(); // progressively settle into place
   }
+  // Apply saved theme after planets exist so they get recolored
+  if (prefs.theme && THEMES[prefs.theme]) applyTheme(prefs.theme);
   applyLayout();
 }
 
