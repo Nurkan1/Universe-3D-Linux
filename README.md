@@ -8,6 +8,7 @@ Every installed application becomes a glowing planet in an interactive universe
 you can search, sort and fly through.
 
 [![CI](https://github.com/Nurkan1/Universe-3D-Linux/actions/workflows/ci.yml/badge.svg)](https://github.com/Nurkan1/Universe-3D-Linux/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Nurkan1/Universe-3D-Linux?sort=semver)](https://github.com/Nurkan1/Universe-3D-Linux/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB)](https://tauri.app)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux-333)](#requirements)
@@ -31,7 +32,10 @@ It runs as a tray daemon, so summoning it with a hotkey is instant.
 ## Features
 
 **Navigation**
-- Four layouts: spiral galaxy, sphere, category rings and grid
+- **Focus layout** (default) — depth carries meaning rather than decoration:
+  the apps you actually use sit in a readable grid at the front, everything
+  else recedes, shrinking and dimming with distance
+- Four more layouts: spiral galaxy, sphere, category rings and grid
 - Fuzzy search (`/`) — typing `gimp` finds *GNU Image Manipulation Program*
 - Keyboard navigation with arrow keys, `Enter` to launch
 - Global hotkey (`Super+Space`) to summon or dismiss the window
@@ -48,6 +52,25 @@ It runs as a tray daemon, so summoning it with a hotkey is instant.
 - Live system monitor: per-core CPU, RAM, swap, network throughput and load
 - Five themes and adjustable bloom, starfield, nebula and motion settings
 
+## The Focus layout
+
+Most 3D desktops failed because the third dimension was decoration — it added
+depth without adding information. Focus uses it as data instead.
+
+Depth encodes **relevance**. The applications you actually launch are laid out
+in an ordered grid at the front, full size and fully legible. Everything else
+recedes into the background, shrinking and dimming with distance. It stays
+present, still clickable and still found by search, but it stops competing for
+attention.
+
+Seen head-on it reads as an ordinary, ordered launcher. The depth is what tells
+you, at a glance, which of several hundred applications matter — something a
+flat list cannot show without hiding things behind a scrollbar.
+
+Ranking blends launch frequency with recency. On a fresh install, with no usage
+history yet, it falls back to signals from the desktop entries themselves so
+the front grid is useful from the first run.
+
 ## Screenshots
 
 <div align="center">
@@ -58,6 +81,28 @@ It runs as a tray daemon, so summoning it with a hotkey is instant.
 Five themes, adjustable bloom, starfield and motion.*
 
 </div>
+
+## Install
+
+Grab a build from the [latest release](https://github.com/Nurkan1/Universe-3D-Linux/releases/latest):
+
+**Debian / Ubuntu / Kali**
+
+```bash
+sudo dpkg -i universe-3d_*_amd64.deb
+```
+
+**AppImage** — any distribution, nothing to install:
+
+```bash
+chmod +x universe-3d_*_amd64.AppImage
+./universe-3d_*_amd64.AppImage
+```
+
+Every release ships a `SHA256SUMS.txt`; verify a download with
+`sha256sum -c SHA256SUMS.txt`.
+
+To build from source instead, see [Building](#building).
 
 ## Requirements
 
@@ -118,7 +163,6 @@ no manual `.desktop` file is needed.
 | `Shift+M` | Move the window to the next monitor |
 | `Esc` | Close panel / hide the window |
 | Double-click the sun | Absorb / expel the planets |
-| Double-click the bar | Maximise / restore |
 
 ## Configuration
 
