@@ -26,5 +26,6 @@ export const universe = {
   closeWindow: () => invoke('window_hide'),
   minimizeWindow: () => invoke('window_minimize'),
   toggleMaximize: () => invoke('window_toggle_maximize'),
+  isMaximized: () => invoke('window_is_maximized'),
   nextMonitor: () => invoke('window_next_monitor'),
 };

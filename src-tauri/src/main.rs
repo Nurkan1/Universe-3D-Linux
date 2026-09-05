@@ -322,6 +322,13 @@ fn window_minimize(window: tauri::Window) {
     let _ = window.minimize();
 }
 
+/// Whether the window is currently maximized, so the UI can show the right
+/// maximize/restore glyph.
+#[tauri::command]
+fn window_is_maximized(window: tauri::Window) -> bool {
+    window.is_maximized().unwrap_or(false)
+}
+
 /// Toggle maximize. A maximized window cannot be dragged anywhere, so this is
 /// what lets the user un-maximize and move it to another monitor.
 #[tauri::command]
@@ -493,6 +500,7 @@ fn main() {
             window_hide,
             window_minimize,
             window_toggle_maximize,
+            window_is_maximized,
             window_next_monitor,
         ])
         .run(tauri::generate_context!())

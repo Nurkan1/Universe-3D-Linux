@@ -154,7 +154,7 @@ let planets = []; // { mesh, label, ring, halo, app, target:Vector3, baseScale }
 let hovered = null;
 let focused = null; // keyboard-selected planet
 let visibleSorted = []; // visible planets in layout order (for keyboard nav)
-let currentLayout = 'galaxy';
+let currentLayout = 'focus';
 let showHidden = true;
 let favOnly = false;
 let categoryFilter = ''; // '' = all categories
@@ -162,6 +162,9 @@ let query = '';
 let warp = null; // { planet, t } active launch animation
 let sunMode = 'normal'; // 'normal' | 'absorbing' | 'absorbed' (black-hole toggle)
 const SUN_CENTER = new THREE.Vector3(0, 0, 0);
+// Where the sun parks in the focus layout: behind and below the front grid,
+// so it lights the scene without being drawn over the readable rows.
+const FOCUS_SUN_POS = new THREE.Vector3(0, -62, -190);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 let sunScale = 1; // eased visual scale of the sun while it holds the planets
 
@@ -255,6 +258,7 @@ function applySettings() {
   bloomPass.radius = settings.bloomRadius;
   bloomPass.threshold = settings.bloomThreshold;
   controls.autoRotateSpeed = settings.rotateSpeed;
+  if (currentLayout === 'focus') controls.autoRotate = false;
   for (const layer of starLayers) layer.material.opacity = settings.starBrightness;
   for (const n of nebulas) n.material.opacity = settings.nebulaOpacity;
   for (const p of planets) {
@@ -424,7 +428,113 @@ const LAYOUTS = {
       );
     });
   },
+
+  /**
+   * Focus: depth carries meaning instead of decoration.
+   *
+   * The other layouts arrange apps by geometry and leave the third axis as an
+   * aesthetic. Here Z encodes *relevance*: the apps you actually use sit in a
+   * readable grid at the front, and everything else recedes into the
+   * background, shrinking and dimming with distance. Viewed head-on it reads
+   * as an ordered launcher; the depth is what tells you, at a glance, which
+   * of several hundred apps matter.
+   *
+   * Front tier  : a legible grid, full size, labels readable.
+   * Back tiers  : progressively further, smaller and dimmer -- still there,
+   *               still clickable, still found by search, just not competing.
+   */
+  focus(items) {
+    // How many apps earn a place in the readable front grid. Kept near 24 so
+    // the grid stays scannable at a glance rather than becoming a wall.
+    const FRONT_COUNT = Math.min(24, items.length);
+    const front = items.slice(0, FRONT_COUNT);
+    const back = items.slice(FRONT_COUNT);
+
+    // --- front tier: an ordered, evenly spaced grid facing the camera ---
+    const cols = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(front.length))));
+    const rows = Math.ceil(front.length / cols);
+    const spacingX = 30;
+    const spacingY = 21;
+    // Centre the grid vertically: biasing it upward pushed the top row behind
+    // the floating top bar. The sun is moved aside instead (see sunOffset).
+    front.forEach((p, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      p.target.set(
+        (col - (cols - 1) / 2) * spacingX,
+        ((rows - 1) / 2 - row) * spacingY - 6,
+        // Slight stagger per row so the grid still reads as 3D when orbited,
+        // without breaking the flat, readable head-on view.
+        row * -1.5,
+      );
+      p.depthTier = 0;
+    });
+
+    // --- back tiers: a wide field receding behind the grid ---
+    // Scattered deterministically rather than placed on rings: concentric
+    // rings read as spokes pointing at the centre, which drags the eye exactly
+    // where it should not go. A hash-based jitter keeps it looking like
+    // ambient depth instead of structure.
+    const PER_SHELL = 45;
+    back.forEach((p, i) => {
+      const shell = Math.floor(i / PER_SHELL) + 1;
+      const n = i % PER_SHELL;
+      // Cheap deterministic pseudo-random in [0,1) from the index.
+      const rand = (seed) => {
+        const x = Math.sin(i * 12.9898 + seed * 78.233) * 43758.5453;
+        return x - Math.floor(x);
+      };
+      const spread = 150 + shell * 30;
+      p.target.set(
+        (rand(1) - 0.5) * spread * 2,
+        (rand(2) - 0.5) * spread * 1.1,
+        -90 - shell * 40 - rand(3) * 30,
+      );
+      // Push anything that would land behind the front grid out to the sides,
+      // so the readable area stays clear.
+      const clearance = 95;
+      if (Math.abs(p.target.x) < clearance && Math.abs(p.target.y - 20) < clearance) {
+        const push = p.target.x >= 0 ? clearance : -clearance;
+        p.target.x = push + (rand(4) - 0.5) * 60;
+      }
+      p.depthTier = shell;
+      void n;
+    });
+  },
 };
+
+/**
+ * Size multiplier for a depth tier in the focus layout.
+ *
+ * Perspective alone is not a strong enough cue at these distances, so the
+ * further tiers are also scaled down. The falloff is deliberately gentle after
+ * the first step: everything must stay clickable, just clearly secondary.
+ */
+function depthScale(tier = 0) {
+  if (!tier) return 1;
+  return Math.max(0.4, 1 - tier * 0.18);
+}
+
+/**
+ * Fade a planet's material to match its depth tier.
+ *
+ * Dimming is what makes the front grid read as "the ones that matter" rather
+ * than merely "the ones that are nearer". Hovered and focused planets always
+ * return to full strength so exploring the background stays comfortable.
+ */
+function applyDepthFade(p, tierScale) {
+  const highlighted = hovered === p || focused === p;
+  const target = currentLayout === 'focus' && !highlighted
+    ? 0.25 + 0.75 * tierScale
+    : 1;
+  const mat = p.mesh.material;
+  // Hidden apps carry their own translucency; never make them more opaque.
+  const ceiling = p.app.noDisplay ? 0.92 : 1;
+  mat.opacity = Math.min(ceiling, target);
+  mat.transparent = mat.opacity < 1 || p.app.noDisplay;
+  mat.emissiveIntensity = p.mesh.userData.baseEmissive * settings.planetGlow * target;
+  if (p.label) p.label.material.opacity = target;
+}
 
 /**
  * Sort key: favorites innermost, then frequently/recently used, then the rest.
@@ -437,12 +547,49 @@ function sortRank(p) {
   if (isFav(p.app)) return -1000 + prefs.favorites.indexOf(p.app.id);
   const recentIdx = prefs.recents.indexOf(p.app.id);
   const count = prefs.launchCounts?.[p.app.id] || 0;
-  if (recentIdx === -1 && count === 0) return 0;
+  if (recentIdx === -1 && count === 0) return coldStartRank(p.app);
   // Recency contributes its position (0 = most recent); frequency pulls
   // inward with diminishing returns so one busy app cannot dominate.
   const recency = recentIdx === -1 ? 20 : recentIdx;
   const frequency = Math.min(15, Math.log2(count + 1) * 4);
   return -100 + recency - frequency;
+}
+
+// Categories that tend to hold the applications people actually open, versus
+// the ones that hold configuration dialogs and helper entries.
+const PROMINENT_CATEGORIES = new Set([
+  'WebBrowser', 'TerminalEmulator', 'TextEditor', 'IDE', 'Development',
+  'FileManager', 'AudioVideo', 'Player', 'Graphics', 'Office', 'Game',
+  'Network', 'Email', 'InstantMessaging', 'Security',
+]);
+const BACKGROUND_CATEGORIES = new Set([
+  'Settings', 'System', 'Accessibility', 'HardwareSettings', 'DesktopSettings',
+  'PackageManager', 'Documentation', 'Core',
+]);
+
+/**
+ * Ordering for apps with no usage history yet.
+ *
+ * Without this the first run has nothing to rank by, so everything ties at
+ * zero and falls back to alphabetical -- which fills the front grid with
+ * whatever starts with "A" and makes the layout's whole premise look false.
+ * These are weak signals read from the desktop entry, only ever used until
+ * real usage data exists.
+ */
+function coldStartRank(app) {
+  let score = 0;
+  // Hidden entries are helpers and almost never what someone wants up front.
+  if (app.noDisplay) score += 40;
+  // Terminal programs are usually invoked from a shell, not a launcher.
+  if (app.terminal) score += 12;
+  if (app.categories.some((c) => BACKGROUND_CATEGORIES.has(c))) score += 18;
+  if (app.categories.some((c) => PROMINENT_CATEGORIES.has(c))) score -= 22;
+  // A description suggests a real, packaged application rather than a stub.
+  if (app.comment) score -= 4;
+  // Entries whose name is a bare command tend to be CLI tools shipped with a
+  // desktop file; ones with spaces and capitals are usually GUI apps.
+  if (/^[a-z0-9._-]+$/.test(app.name)) score += 8;
+  return score;
 }
 
 /** Re-apply visibility filter + layout targets. */
@@ -481,6 +628,10 @@ const HOME_POS = camera.position.clone();
 
 /** Double-click on the sun: absorb every planet into it, or expel them back. */
 function toggleSun() {
+  // The absorb effect belongs to the orbital layouts. In focus the sun sits
+  // far behind the grid, so pulling the apps into it would drag them out of
+  // view for a purely decorative animation.
+  if (currentLayout === 'focus') return;
   if (sunMode === 'normal') {
     sfx.playAbsorb();
     sunMode = 'absorbing';
@@ -576,13 +727,27 @@ async function updateTooltip() {
 document.getElementById('btn-close').addEventListener('click', () => universe.closeWindow());
 document.getElementById('btn-min').addEventListener('click', () => universe.minimizeWindow());
 
-// Double-clicking the title bar restores/maximizes, the usual desktop
-// behaviour -- and the way to un-maximize so the window can be dragged to
-// another screen at all.
+// Maximize/restore. The double-click on the bar competes with dragging -- a
+// slight movement between clicks makes the gesture register as a drag instead,
+// so the button is the reliable way to do it and the gesture is a shortcut.
+const btnMax = document.getElementById('btn-max');
+async function toggleMaximize() {
+  await universe.toggleMaximize();
+  // Reflect the new state in the glyph: □ offers "maximize", ❐ offers
+  // "restore down".
+  const maximized = await universe.isMaximized();
+  btnMax.textContent = maximized ? '❐' : '□';
+  btnMax.title = maximized ? 'Restore down' : 'Maximize';
+}
+btnMax.addEventListener('click', () => {
+  sfx.playClick();
+  toggleMaximize();
+});
+
 document.getElementById('topbar').addEventListener('dblclick', (e) => {
   // Ignore double-clicks that land on a control rather than the bar itself.
   if (e.target.closest('input, button, label, select')) return;
-  universe.toggleMaximize();
+  toggleMaximize();
 });
 
 // Send the window to the next monitor. Dragging works too, but on a multi-head
@@ -676,12 +841,34 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+/**
+ * Move the camera to the vantage a layout is designed to be seen from.
+ *
+ * Focus is the one layout that only works head-on: its whole premise is that
+ * the front grid reads as an ordered launcher, which an orbiting camera
+ * destroys. So entering it squares the camera up and stops the idle spin,
+ * while leaving it restores the default orbit view.
+ */
+function applyLayoutViewpoint(layout) {
+  if (layout === 'focus') {
+    controls.autoRotate = false;
+    controls.target.set(0, 0, 0);
+    camera.position.set(0, 0, 150);
+  } else {
+    controls.autoRotate = true;
+    camera.position.copy(HOME_POS);
+    controls.target.set(0, 0, 0);
+  }
+  controls.update();
+}
+
 document.querySelectorAll('#layouts button').forEach((btn) => {
   btn.addEventListener('click', () => {
     sfx.playClick();
     document.querySelectorAll('#layouts button').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     currentLayout = btn.dataset.layout;
+    applyLayoutViewpoint(currentLayout);
     applyLayout();
   });
 });
@@ -1134,7 +1321,16 @@ async function boot() {
   }
   // Apply saved theme after planets exist so they get recolored
   if (prefs.theme && THEMES[prefs.theme]) applyTheme(prefs.theme);
+  // Focus is the default layout and only works head-on, so square the camera
+  // up before the first frame rather than starting in the orbit view.
+  applyLayoutViewpoint(currentLayout);
   applyLayout();
+  // The window starts maximized, so show the restore glyph from the outset.
+  try {
+    const maximized = await universe.isMaximized();
+    btnMax.textContent = maximized ? '❐' : '□';
+    btnMax.title = maximized ? 'Restore down' : 'Maximize';
+  } catch { /* window controls unavailable: leave the default glyph */ }
 }
 
 const clock = new THREE.Clock();
@@ -1143,13 +1339,26 @@ function animate() {
   const dt = clock.getDelta();
   const t = clock.elapsedTime;
 
+  // Settle the sun first: the absorb vortex and the raycast both read
+  // core.position this frame, and the glow sprite has to sit exactly on top of
+  // the core. Updating it at the end of the frame instead left the halo a step
+  // behind the core, which looked like a second sun drifting away from it.
+  // The sun is the centrepiece of the orbital layouts, but in focus it would
+  // cover the readable grid, so it eases behind and below it there.
+  const sunGoalPos = currentLayout === 'focus' ? FOCUS_SUN_POS : SUN_CENTER;
+  core.position.lerp(sunGoalPos, 1 - Math.exp(-3 * dt));
+  glow.position.copy(core.position);
+  sun.position.copy(core.position);
+
   // Smoothly move planets to their layout targets + gentle float
   for (const p of planets) {
     if (!p.mesh.visible) continue;
     if (sunMode === 'absorbing') {
       // Vortex: spiral inward faster the closer they get, shrinking away
-      const dist = p.mesh.position.distanceTo(SUN_CENTER);
-      p.mesh.position.lerp(SUN_CENTER, 1 - Math.exp(-2.2 * dt));
+      // Fall toward wherever the sun actually is: in the focus layout it is
+      // parked away from the origin.
+      const dist = p.mesh.position.distanceTo(core.position);
+      p.mesh.position.lerp(core.position, 1 - Math.exp(-2.2 * dt));
       p.mesh.position.applyAxisAngle(Y_AXIS, dt * (1.2 + 80 / (dist + 8)));
       const s = Math.max(0.04, Math.min(1, dist / 45));
       p.baseScale = s;
@@ -1161,10 +1370,13 @@ function animate() {
     p.mesh.position.lerp(p.target, 1 - Math.exp(-3 * dt));
     p.mesh.position.y += Math.sin(t * 0.8 + p.mesh.id) * 0.012;
     p.mesh.rotation.y += dt * 0.4;
-    // Hover/keyboard-focus pulse easing back to 1
-    const goal = (hovered === p || focused === p) ? 1.35 : 1;
+    // Hover/keyboard-focus pulse easing back to 1, scaled by the depth tier so
+    // background apps in the focus layout stay visually subordinate.
+    const tierScale = currentLayout === 'focus' ? depthScale(p.depthTier) : 1;
+    const goal = (hovered === p || focused === p) ? 1.35 : tierScale;
     p.baseScale += (goal - p.baseScale) * Math.min(1, 6 * dt);
     p.mesh.scale.setScalar(p.baseScale);
+    applyDepthFade(p, tierScale);
     if (p.ring) p.ring.rotation.z += dt * 0.8;
     if (p.halo.visible) p.halo.material.opacity = 0.7 + Math.sin(t * 2 + p.mesh.id) * 0.25;
   }
@@ -1198,8 +1410,9 @@ function animate() {
       const launched = warp.p.app;
       warp = null;
       bloomPass.strength = settings.bloomStrength;
-      camera.position.copy(HOME_POS);
-      controls.target.set(0, 0, 0);
+      // Return to the vantage this layout is meant to be seen from, not the
+      // orbit default -- otherwise launching once knocks focus out of view.
+      applyLayoutViewpoint(currentLayout);
       focused = null;
       universe.launchApp(launched);
       universe.closeWindow(); // hides; daemon keeps it warm
@@ -1207,7 +1420,8 @@ function animate() {
   }
 
   core.rotation.y += dt * 0.2;
-  glow.material.opacity = settings.sunGlow * (0.85 + Math.sin(t * 1.5) * 0.1);
+  glow.material.opacity = settings.sunGlow * (0.85 + Math.sin(t * 1.5) * 0.1)
+    * (currentLayout === 'focus' ? 0.5 : 1);
 
   // Raycast hover detection (planet meshes only, not labels)
   raycaster.setFromCamera(pointer, camera);
@@ -1218,7 +1432,9 @@ function animate() {
     hovered = hit;
     if (hovered) sfx.playHover();
     canvas.style.cursor = hovered ? 'pointer' : 'grab';
-    controls.autoRotate = !hovered; // pause spin while aiming
+    // Pause the spin while aiming -- and never resume it in the focus layout,
+    // which is meant to be read head-on.
+    controls.autoRotate = !hovered && currentLayout !== 'focus';
     updateTooltip();
   }
 
