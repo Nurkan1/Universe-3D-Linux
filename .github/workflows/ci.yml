@@ -28,7 +28,8 @@ jobs:
             librsvg2-dev \
             libxdo-dev \
             build-essential \
-            pkg-config
+            pkg-config \
+            patchelf
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -79,7 +80,8 @@ jobs:
             librsvg2-dev \
             libxdo-dev \
             build-essential \
-            pkg-config
+            pkg-config \
+            patchelf
 
       - uses: dtolnay/rust-toolchain@stable
 

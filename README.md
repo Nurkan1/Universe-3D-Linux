@@ -127,8 +127,11 @@ To build from source instead, see [Building](#building).
 ```bash
 sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev \
                  libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
-                 build-essential curl wget file pkg-config
+                 build-essential curl wget file pkg-config patchelf
 ```
+
+`patchelf` is only needed to bundle the AppImage — without it the build fails
+late with `failed to run linuxdeploy`.
 
 If you do not have Rust:
 
