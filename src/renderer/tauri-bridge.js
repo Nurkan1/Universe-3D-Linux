@@ -1,16 +1,22 @@
 // Bridge that recreates the old Electron `window.universe.*` API on top of
 // Tauri's `invoke`. Keeping the same shape means the renderer (universe.js)
 // barely changed when migrating from Electron to Tauri.
-const { invoke } = window.__TAURI__.core;
+//
+// This is an ES module importing the API directly rather than reading the
+// `window.__TAURI__` global: `withGlobalTauri` is off so that a script injected
+// into the webview cannot reach `invoke` (and therefore `run_command`) simply
+// by touching a global.
+import { invoke } from 'tauri/core.js';
 
-window.universe = {
+export const universe = {
   scanApps: () => invoke('apps_scan'),
   launchApp: (appInfo) => invoke('apps_launch', { app: appInfo }),
+  launchAction: (appInfo, action) => invoke('apps_launch_action', { app: appInfo, action }),
   iconData: (iconPath) => invoke('icon_data', { iconPath }),
   getPrefs: () => invoke('prefs_get'),
   setPrefs: (prefs) => invoke('prefs_set', { prefs }),
 
-  // New utilities
+  // Utilities
   runCommand: (command, inTerminal = false) =>
     invoke('run_command', { command, inTerminal }),
   openTerminal: (path = null) => invoke('open_terminal', { path }),

@@ -4,8 +4,18 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
+
+/// One action declared by a `.desktop` entry's `Actions=` key, e.g. Firefox's
+/// "Open a New Private Window". Each has its own `Exec` line.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DesktopAction {
+    pub id: String,
+    pub name: String,
+    pub exec: String,
+}
 
 /// One launchable application discovered on the system.
 #[derive(Serialize, Deserialize, Clone)]
@@ -20,6 +30,8 @@ pub struct AppInfo {
     pub no_display: bool,
     pub terminal: bool,
     pub file: String,
+    /// Extra launch modes from the entry's `Actions=` key (may be empty).
+    pub actions: Vec<DesktopAction>,
 }
 
 /// Directories where `.desktop` entries live (system + user).
@@ -52,25 +64,58 @@ const ICON_SIZE_PREFERENCE: &[&str] = &[
 ];
 const ICON_EXTS: &[&str] = &["png", "svg", "xpm"];
 
-/// Parse the `[Desktop Entry]` section of a `.desktop` file into a map.
-fn parse_desktop_file(path: &Path) -> Option<HashMap<String, String>> {
+/// A parsed `.desktop` file: the main `[Desktop Entry]` group plus every
+/// `[Desktop Action <id>]` group, keyed by action id.
+struct DesktopFile {
+    entry: HashMap<String, String>,
+    action_groups: HashMap<String, HashMap<String, String>>,
+}
+
+/// Parse a `.desktop` file into its `[Desktop Entry]` group and action groups.
+fn parse_desktop_file(path: &Path) -> Option<DesktopFile> {
     let content = fs::read_to_string(path).ok()?;
     let mut entry = HashMap::new();
-    let mut in_desktop_entry = false;
+    let mut action_groups: HashMap<String, HashMap<String, String>> = HashMap::new();
+    // Which group the following key=value lines belong to.
+    let mut current: Option<Option<String>> = None; // None group = [Desktop Entry]
+
     for raw_line in content.lines() {
         let line = raw_line.trim();
-        if line.starts_with('[') {
-            in_desktop_entry = line == "[Desktop Entry]";
+        if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            current = if header == "Desktop Entry" {
+                Some(None)
+            } else if let Some(id) = header.strip_prefix("Desktop Action ") {
+                let id = id.trim().to_string();
+                action_groups.entry(id.clone()).or_default();
+                Some(Some(id))
+            } else {
+                None // some other group (e.g. a vendor extension): ignore
+            };
             continue;
         }
-        if !in_desktop_entry || line.is_empty() || line.starts_with('#') {
+        let Some(group) = current.as_ref() else {
+            continue;
+        };
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if let Some(eq) = line.find('=') {
-            entry.insert(line[..eq].to_string(), line[eq + 1..].to_string());
+        let Some(eq) = line.find('=') else { continue };
+        let (key, value) = (line[..eq].to_string(), line[eq + 1..].to_string());
+        match group {
+            None => {
+                entry.insert(key, value);
+            }
+            Some(id) => {
+                if let Some(g) = action_groups.get_mut(id) {
+                    g.insert(key, value);
+                }
+            }
         }
     }
-    Some(entry)
+    Some(DesktopFile {
+        entry,
+        action_groups,
+    })
 }
 
 struct IconHit {
@@ -78,8 +123,72 @@ struct IconHit {
     priority: i32,
 }
 
+/// On-disk cache of the resolved icon index.
+///
+/// Walking every theme under `/usr/share/icons` costs tens of thousands of
+/// `stat` calls on a full Kali install, which made startup visibly slow. The
+/// resolved name -> path map is cached and reused as long as none of the icon
+/// roots have been modified since it was written.
+#[derive(Serialize, Deserialize)]
+struct IconCache {
+    /// Newest mtime (unix seconds) seen across the icon roots when cached.
+    stamp: u64,
+    /// Icon name -> absolute path.
+    icons: HashMap<String, String>,
+}
+
+fn icon_cache_path() -> PathBuf {
+    let dir = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("universe-3d");
+    let _ = fs::create_dir_all(&dir);
+    dir.join("icon-index.json")
+}
+
+/// Cheap freshness stamp: the newest mtime across the icon root directories.
+///
+/// Installing or removing a theme touches its root, so this catches the cases
+/// that matter without re-walking the whole tree.
+fn icon_roots_stamp() -> u64 {
+    fn mtime(path: &Path) -> u64 {
+        fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+    let mut newest = 0;
+    for root in icon_dirs() {
+        newest = newest.max(mtime(&root));
+        // One level down catches a theme being added or updated in place.
+        if let Ok(entries) = fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                newest = newest.max(mtime(&entry.path()));
+            }
+        }
+    }
+    newest
+}
+
+fn load_icon_cache(stamp: u64) -> Option<HashMap<String, String>> {
+    let raw = fs::read_to_string(icon_cache_path()).ok()?;
+    let cache: IconCache = serde_json::from_str(&raw).ok()?;
+    (cache.stamp == stamp).then_some(cache.icons)
+}
+
+fn store_icon_cache(stamp: u64, icons: &HashMap<String, String>) {
+    let cache = IconCache {
+        stamp,
+        icons: icons.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&cache) {
+        let _ = fs::write(icon_cache_path(), json);
+    }
+}
+
 /// Build an icon-name -> absolute-path index (one filesystem walk).
-fn build_icon_index() -> HashMap<String, IconHit> {
+fn walk_icon_index() -> HashMap<String, IconHit> {
     let mut index: HashMap<String, IconHit> = HashMap::new();
 
     fn visit(dir: &Path, priority: i32, index: &mut HashMap<String, IconHit>) {
@@ -119,7 +228,13 @@ fn build_icon_index() -> HashMap<String, IconHit> {
                     None => true,
                 };
                 if better {
-                    index.insert(stem, IconHit { path: full, priority });
+                    index.insert(
+                        stem,
+                        IconHit {
+                            path: full,
+                            priority,
+                        },
+                    );
                 }
             }
         }
@@ -131,8 +246,22 @@ fn build_icon_index() -> HashMap<String, IconHit> {
     index
 }
 
+/// Icon index, served from the on-disk cache when the icon roots are unchanged.
+fn build_icon_index() -> HashMap<String, String> {
+    let stamp = icon_roots_stamp();
+    if let Some(cached) = load_icon_cache(stamp) {
+        return cached;
+    }
+    let icons: HashMap<String, String> = walk_icon_index()
+        .into_iter()
+        .map(|(name, hit)| (name, hit.path.to_string_lossy().to_string()))
+        .collect();
+    store_icon_cache(stamp, &icons);
+    icons
+}
+
 /// Resolve an `Icon=` value to an absolute file path (or None).
-fn resolve_icon(icon_value: &str, index: &HashMap<String, IconHit>) -> Option<String> {
+fn resolve_icon(icon_value: &str, index: &HashMap<String, String>) -> Option<String> {
     if icon_value.is_empty() {
         return None;
     }
@@ -152,7 +281,7 @@ fn resolve_icon(icon_value: &str, index: &HashMap<String, IconHit>) -> Option<St
     index
         .get(icon_value)
         .or_else(|| index.get(stripped))
-        .map(|hit| hit.path.to_string_lossy().to_string())
+        .cloned()
 }
 
 /// Scan all app dirs and return the merged, de-duplicated, sorted list.
@@ -171,10 +300,11 @@ pub fn scan_apps() -> Vec<AppInfo> {
             if !fname.ends_with(".desktop") {
                 continue;
             }
-            let entry = match parse_desktop_file(&file.path()) {
+            let parsed = match parse_desktop_file(&file.path()) {
                 Some(e) => e,
                 None => continue,
             };
+            let entry = &parsed.entry;
             let get = |k: &str| entry.get(k).cloned().unwrap_or_default();
             if get("Type") != "Application" || get("Name").is_empty() || get("Exec").is_empty() {
                 continue;
@@ -188,6 +318,25 @@ pub fn scan_apps() -> Vec<AppInfo> {
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
                 .collect();
+            // `Actions=` lists action ids in display order; each needs a
+            // matching `[Desktop Action <id>]` group with Name and Exec.
+            let actions: Vec<DesktopAction> = get("Actions")
+                .split(';')
+                .filter(|s| !s.is_empty())
+                .filter_map(|id| {
+                    let group = parsed.action_groups.get(id)?;
+                    let name = group.get("Name")?.clone();
+                    let exec = group.get("Exec")?.clone();
+                    if name.is_empty() || exec.is_empty() {
+                        return None;
+                    }
+                    Some(DesktopAction {
+                        id: id.to_string(),
+                        name,
+                        exec,
+                    })
+                })
+                .collect();
             apps.insert(
                 fname.clone(),
                 AppInfo {
@@ -200,13 +349,14 @@ pub fn scan_apps() -> Vec<AppInfo> {
                     no_display: get("NoDisplay") == "true",
                     terminal: get("Terminal") == "true",
                     file: file.path().to_string_lossy().to_string(),
+                    actions,
                 },
             );
         }
     }
 
     let mut list: Vec<AppInfo> = apps.into_values().collect();
-    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    list.sort_by_key(|a| a.name.to_lowercase());
     list
 }
 

@@ -7,6 +7,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as sfx from './sfx.js';
+import { universe } from './tauri-bridge.js';
 
 // ---------------------------------------------------------------------------
 // Scene setup
@@ -165,8 +166,53 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 let sunScale = 1; // eased visual scale of the sun while it holds the planets
 
 // Persisted preferences: favorites pin apps near the sun, recents come next
-let prefs = { favorites: [], recents: [] };
+let prefs = { favorites: [], recents: [], launchCounts: {}, cmdHistory: [] };
 const isFav = (app) => prefs.favorites.includes(app.id);
+
+// ---------------------------------------------------------------------------
+// Fuzzy matching: a query matches when its characters appear in order (not
+// necessarily adjacent), so "gimp" finds "GNU Image Manipulation Program".
+// Returns a score (lower is better) or -1 when there is no match at all.
+// ---------------------------------------------------------------------------
+function fuzzyScore(text, q) {
+  if (!q) return 0;
+  const hay = text.toLowerCase();
+  // A straight substring hit is always the strongest match; rank it by how
+  // early it appears so "files" beats "Recent Files" for a leading match.
+  const direct = hay.indexOf(q);
+  if (direct !== -1) return direct;
+
+  // Subsequence walk. Gaps between matched characters cost score, so tightly
+  // packed matches (an acronym like "gimp") outrank scattered ones.
+  let ti = 0;
+  let gaps = 0;
+  let lastHit = -1;
+  for (const ch of q) {
+    const hit = hay.indexOf(ch, ti);
+    if (hit === -1) return -1;
+    if (lastHit !== -1) gaps += hit - lastHit - 1;
+    lastHit = hit;
+    ti = hit + 1;
+  }
+  // Offset past every substring score so direct hits always win.
+  return 1000 + gaps;
+}
+
+/** Best (lowest) fuzzy score across an app's searchable fields, or -1. */
+function appScore(app, q) {
+  if (!q) return 0;
+  const fields = [app.name, app.comment, app.categories.join(' ')];
+  let best = -1;
+  for (let i = 0; i < fields.length; i++) {
+    const score = fuzzyScore(fields[i] || '', q);
+    // Later fields are weaker signals than the name itself.
+    if (score !== -1) {
+      const weighted = score + i * 5000;
+      if (best === -1 || weighted < best) best = weighted;
+    }
+  }
+  return best;
+}
 
 async function toggleFavorite(p) {
   const id = p.app.id;
@@ -176,14 +222,16 @@ async function toggleFavorite(p) {
     ? [...prefs.favorites, id]
     : prefs.favorites.filter((f) => f !== id);
   p.halo.visible = isFav(p.app);
-  await window.universe.setPrefs(prefs);
+  await universe.setPrefs(prefs);
   applyLayout();
   updateTooltip();
 }
 
 async function recordRecent(app) {
   prefs.recents = [app.id, ...prefs.recents.filter((r) => r !== app.id)].slice(0, 12);
-  await window.universe.setPrefs(prefs);
+  prefs.launchCounts = prefs.launchCounts || {};
+  prefs.launchCounts[app.id] = (prefs.launchCounts[app.id] || 0) + 1;
+  await universe.setPrefs(prefs);
 }
 
 /** Golden halo sprite shown around favorite planets. */
@@ -234,7 +282,7 @@ async function makeLabelSprite(app) {
 
   // Icon (if resolvable)
   if (app.icon) {
-    const dataUrl = await window.universe.iconData(app.icon);
+    const dataUrl = await universe.iconData(app.icon);
     if (dataUrl) {
       try {
         const img = new Image();
@@ -378,12 +426,23 @@ const LAYOUTS = {
   },
 };
 
-/** Sort key: favorites innermost, then recents (by recency), then alphabetic. */
+/**
+ * Sort key: favorites innermost, then frequently/recently used, then the rest.
+ *
+ * Frequency and recency are blended so an app you open every day keeps its
+ * inner orbit even when you have not touched it today, while something you
+ * just launched still moves inward. Lower sorts closer to the sun.
+ */
 function sortRank(p) {
   if (isFav(p.app)) return -1000 + prefs.favorites.indexOf(p.app.id);
-  const r = prefs.recents.indexOf(p.app.id);
-  if (r !== -1) return -100 + r;
-  return 0;
+  const recentIdx = prefs.recents.indexOf(p.app.id);
+  const count = prefs.launchCounts?.[p.app.id] || 0;
+  if (recentIdx === -1 && count === 0) return 0;
+  // Recency contributes its position (0 = most recent); frequency pulls
+  // inward with diminishing returns so one busy app cannot dominate.
+  const recency = recentIdx === -1 ? 20 : recentIdx;
+  const frequency = Math.min(15, Math.log2(count + 1) * 4);
+  return -100 + recency - frequency;
 }
 
 /** Re-apply visibility filter + layout targets. */
@@ -393,17 +452,22 @@ function applyLayout() {
   const q = query.toLowerCase();
   const visible = [];
   for (const p of planets) {
-    const matches = !q
-      || p.app.name.toLowerCase().includes(q)
-      || p.app.comment.toLowerCase().includes(q)
-      || p.app.categories.some((cat) => cat.toLowerCase().includes(q));
+    const score = appScore(p.app, q);
+    p.searchScore = score;
+    const matches = score !== -1;
     const allowed = showHidden || !p.app.noDisplay;
     const favOk = !favOnly || isFav(p.app);
     const catOk = !categoryFilter || p.app.categories.includes(categoryFilter);
     p.mesh.visible = matches && allowed && favOk && catOk;
     if (p.mesh.visible) visible.push(p);
   }
-  visible.sort((a, b) => sortRank(a) - sortRank(b) || a.app.name.localeCompare(b.app.name));
+  // While searching, match quality leads; otherwise use the favorites/usage
+  // ranking so the inner orbits stay meaningful.
+  visible.sort((a, b) => (
+    q
+      ? a.searchScore - b.searchScore || sortRank(a) - sortRank(b)
+      : sortRank(a) - sortRank(b)
+  ) || a.app.name.localeCompare(b.app.name));
   visibleSorted = visible;
   if (focused && !focused.mesh.visible) focused = null;
   LAYOUTS[currentLayout](visible);
@@ -497,7 +561,7 @@ async function updateTooltip() {
   tooltipComment.textContent = (app.comment || app.categories.join(' · '))
     + '  ·  right-click: favorite';
   if (app.icon) {
-    const data = await window.universe.iconData(app.icon);
+    const data = await universe.iconData(app.icon);
     if (data) { tooltipIcon.src = data; tooltipIcon.style.display = ''; }
     else tooltipIcon.style.display = 'none';
   } else {
@@ -509,8 +573,8 @@ async function updateTooltip() {
 // ---------------------------------------------------------------------------
 // UI wiring
 // ---------------------------------------------------------------------------
-document.getElementById('btn-close').addEventListener('click', () => window.universe.closeWindow());
-document.getElementById('btn-min').addEventListener('click', () => window.universe.minimizeWindow());
+document.getElementById('btn-close').addEventListener('click', () => universe.closeWindow());
+document.getElementById('btn-min').addEventListener('click', () => universe.minimizeWindow());
 
 const searchInput = document.getElementById('search');
 searchInput.addEventListener('input', () => {
@@ -546,6 +610,10 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === 'Escape') {
+    if (!actionsMenu.classList.contains('hidden')) {
+      hideActionsMenu();
+      return;
+    }
     if (typing && searchInput.value) {
       searchInput.value = '';
       query = '';
@@ -554,7 +622,7 @@ window.addEventListener('keydown', (e) => {
     } else if (typing) {
       searchInput.blur();
     } else {
-      window.universe.closeWindow();
+      universe.closeWindow();
     }
     return;
   }
@@ -576,6 +644,11 @@ window.addEventListener('keydown', (e) => {
     case 'f':
       if (focused) toggleFavorite(focused);
       break;
+    case 'a': {
+      const target = focused || hovered;
+      if (target) showActionsMenu(target);
+      break;
+    }
     default:
   }
 });
@@ -659,7 +732,7 @@ document.querySelectorAll('#theme-picker button').forEach((btn) => {
     sfx.playClick();
     applyTheme(btn.dataset.theme);
     prefs.theme = currentTheme;
-    window.universe.setPrefs(prefs);
+    universe.setPrefs(prefs);
   });
 });
 
@@ -694,7 +767,7 @@ function fmtUptime(s) {
 
 async function pollMonitor() {
   let s;
-  try { s = await window.universe.systemStats(); } catch { return; }
+  try { s = await universe.systemStats(); } catch { return; }
   monCpuFill.style.width = `${s.cpu.toFixed(0)}%`;
   monCpuVal.textContent = `${s.cpu.toFixed(0)}%`;
   // Per-core mini bars
@@ -724,13 +797,15 @@ async function pollMonitor() {
 
 document.getElementById('btn-monitor').addEventListener('click', () => {
   sfx.playClick();
-  const showing = monitorPanel.classList.toggle('hidden');
-  if (!showing) {
+  // `toggle` returns whether 'hidden' is now present, i.e. the panel is closed.
+  const hidden = monitorPanel.classList.toggle('hidden');
+  // Always clear first: a fast double toggle used to leak an interval, leaving
+  // two pollers hammering the backend for the rest of the session.
+  clearInterval(monitorTimer);
+  monitorTimer = null;
+  if (!hidden) {
     pollMonitor();
     monitorTimer = setInterval(pollMonitor, 1500);
-  } else {
-    clearInterval(monitorTimer);
-    monitorTimer = null;
   }
 });
 
@@ -740,21 +815,99 @@ document.getElementById('btn-monitor').addEventListener('click', () => {
 const cmdPanel = document.getElementById('cmd-panel');
 const cmdInput = document.getElementById('cmd-input');
 const cmdTerminal = document.getElementById('cmd-terminal');
+const cmdConfirm = document.getElementById('cmd-confirm');
+const cmdConfirmText = document.getElementById('cmd-confirm-text');
+const cmdHistoryList = document.getElementById('cmd-history');
+
+const CMD_HISTORY_MAX = 25;
+// Where the user currently is when walking history with the arrow keys.
+// -1 means "on the live input", 0 is the most recent entry.
+let historyPos = -1;
+let historyDraft = '';
+// The command awaiting confirmation, or null when nothing is pending.
+let pendingCommand = null;
 
 function toggleCmdPanel(force) {
   const hide = force === false || (force === undefined && !cmdPanel.classList.contains('hidden'));
   cmdPanel.classList.toggle('hidden', hide);
-  if (!hide) { cmdInput.value = ''; cmdInput.focus(); }
+  cancelPendingCommand();
+  if (!hide) {
+    cmdInput.value = '';
+    historyPos = -1;
+    historyDraft = '';
+    renderHistory();
+    cmdInput.focus();
+  }
 }
 
-async function runTypedCommand() {
+/** Render the recent-command list; clicking an entry loads it into the input. */
+function renderHistory() {
+  const history = prefs.cmdHistory || [];
+  cmdHistoryList.textContent = '';
+  cmdHistoryList.classList.toggle('hidden', history.length === 0);
+  for (const entry of history.slice(0, 8)) {
+    const li = document.createElement('li');
+    li.textContent = entry;           // textContent: never interpret as markup
+    li.title = 'Click to reuse';
+    li.addEventListener('click', () => {
+      cmdInput.value = entry;
+      cmdInput.focus();
+    });
+    cmdHistoryList.appendChild(li);
+  }
+}
+
+/** Step through history with the arrow keys, preserving the half-typed line. */
+function navigateHistory(dir) {
+  const history = prefs.cmdHistory || [];
+  if (!history.length) return;
+  if (historyPos === -1 && dir > 0) historyDraft = cmdInput.value;
+  const next = historyPos + dir;
+  if (next < -1 || next >= history.length) return;
+  historyPos = next;
+  cmdInput.value = historyPos === -1 ? historyDraft : history[historyPos];
+  // Put the caret at the end rather than selecting the recalled text.
+  requestAnimationFrame(() => {
+    cmdInput.setSelectionRange(cmdInput.value.length, cmdInput.value.length);
+  });
+}
+
+async function rememberCommand(cmd) {
+  const history = (prefs.cmdHistory || []).filter((c) => c !== cmd);
+  prefs.cmdHistory = [cmd, ...history].slice(0, CMD_HISTORY_MAX);
+  await universe.setPrefs(prefs);
+  renderHistory();
+}
+
+function cancelPendingCommand() {
+  pendingCommand = null;
+  cmdConfirm.classList.add('hidden');
+}
+
+/**
+ * Ask before running. Handing a string to `sh -c` is irreversible and easy to
+ * fire by accident from a text box bound to Enter, so the command is shown
+ * back verbatim and only runs on a second, explicit confirmation.
+ */
+function requestRunCommand() {
   const cmd = cmdInput.value.trim();
   if (!cmd) return;
+  pendingCommand = { cmd, inTerminal: cmdTerminal.checked };
+  cmdConfirmText.textContent = cmd; // textContent, not innerHTML
+  cmdConfirm.classList.remove('hidden');
+  document.getElementById('cmd-confirm-yes').focus();
+}
+
+async function confirmRunCommand() {
+  if (!pendingCommand) return;
+  const { cmd, inTerminal } = pendingCommand;
+  cancelPendingCommand();
   try {
-    await window.universe.runCommand(cmd, cmdTerminal.checked);
+    await universe.runCommand(cmd, inTerminal);
+    await rememberCommand(cmd);
     showToast(`Ran: ${cmd}`);
     toggleCmdPanel(false);
-    window.universe.closeWindow();
+    universe.closeWindow();
   } catch (err) {
     showToast(`Command failed: ${err}`);
   }
@@ -764,16 +917,83 @@ document.getElementById('btn-terminal').addEventListener('click', () => {
   sfx.playClick();
   toggleCmdPanel();
 });
-document.getElementById('cmd-run').addEventListener('click', runTypedCommand);
+document.getElementById('cmd-run').addEventListener('click', requestRunCommand);
+document.getElementById('cmd-confirm-yes').addEventListener('click', confirmRunCommand);
+document.getElementById('cmd-confirm-no').addEventListener('click', () => {
+  cancelPendingCommand();
+  cmdInput.focus();
+});
 document.getElementById('cmd-open-term').addEventListener('click', async () => {
-  await window.universe.openTerminal();
+  await universe.openTerminal();
   toggleCmdPanel(false);
-  window.universe.closeWindow();
+  universe.closeWindow();
 });
 cmdInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); runTypedCommand(); }
-  else if (e.key === 'Escape') { e.preventDefault(); toggleCmdPanel(false); }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    requestRunCommand();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    // First Escape backs out of a pending confirmation, second closes the panel.
+    if (pendingCommand) { cancelPendingCommand(); cmdInput.focus(); }
+    else toggleCmdPanel(false);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    navigateHistory(1);
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    navigateHistory(-1);
+  }
 });
+
+// ---------------------------------------------------------------------------
+// Desktop-entry actions: extra launch modes declared by the .desktop file
+// (Firefox's "New Private Window", a terminal's "New Window", ...).
+// ---------------------------------------------------------------------------
+const actionsMenu = document.getElementById('actions-menu');
+
+function hideActionsMenu() {
+  actionsMenu.classList.add('hidden');
+  actionsMenu.textContent = '';
+}
+
+/** Show the actions of the focused/hovered planet next to the screen centre. */
+function showActionsMenu(p) {
+  const actions = p?.app?.actions || [];
+  if (!actions.length) {
+    showToast(`${p?.app?.name || 'This app'} has no extra actions`);
+    return;
+  }
+  actionsMenu.textContent = '';
+
+  const title = document.createElement('div');
+  title.className = 'actions-title';
+  title.textContent = p.app.name;
+  actionsMenu.appendChild(title);
+
+  // The plain Exec line, so the default launch is reachable from here too.
+  const entries = [{ id: null, name: 'Launch' }, ...actions];
+  for (const action of entries) {
+    const btn = document.createElement('button');
+    btn.textContent = action.name;   // textContent: .desktop data is untrusted
+    btn.addEventListener('click', async () => {
+      hideActionsMenu();
+      try {
+        if (action.id === null) {
+          launchWithWarp(p);
+        } else {
+          await universe.launchAction(p.app, action.id);
+          recordRecent(p.app);
+          universe.closeWindow();
+        }
+      } catch (err) {
+        showToast(`Action failed: ${err}`);
+      }
+    });
+    actionsMenu.appendChild(btn);
+  }
+  actionsMenu.classList.remove('hidden');
+}
 
 // ---------------------------------------------------------------------------
 // Settings panel wiring
@@ -799,7 +1019,7 @@ function saveSettingsDebounced() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     prefs.settings = settings;
-    window.universe.setPrefs(prefs);
+    universe.setPrefs(prefs);
   }, 400);
 }
 
@@ -849,7 +1069,11 @@ window.addEventListener('resize', () => {
 // Boot + render loop
 // ---------------------------------------------------------------------------
 async function boot() {
-  prefs = await window.universe.getPrefs();
+  // Merge over the defaults so prefs written by an older build (no launch
+  // counts, no command history) still produce a fully-shaped object.
+  prefs = { favorites: [], recents: [], launchCounts: {}, cmdHistory: [], ...await universe.getPrefs() };
+  prefs.launchCounts = prefs.launchCounts || {};
+  prefs.cmdHistory = prefs.cmdHistory || [];
   // Merge saved settings over defaults (ignores stale/unknown keys)
   if (prefs.settings) {
     for (const key of Object.keys(SETTINGS_DEFAULTS)) {
@@ -858,7 +1082,7 @@ async function boot() {
   }
   syncSliders();
   applySettings();
-  allApps = await window.universe.scanApps();
+  allApps = await universe.scanApps();
   populateCategories();
   // Build planets in small batches so labels (async icons) don't block long
   for (let i = 0; i < allApps.length; i++) {
@@ -934,8 +1158,8 @@ function animate() {
       camera.position.copy(HOME_POS);
       controls.target.set(0, 0, 0);
       focused = null;
-      window.universe.launchApp(launched);
-      window.universe.closeWindow(); // hides; daemon keeps it warm
+      universe.launchApp(launched);
+      universe.closeWindow(); // hides; daemon keeps it warm
     }
   }
 

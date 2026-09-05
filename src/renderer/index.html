@@ -150,11 +150,25 @@
 
   <!-- Command launcher -->
   <div id="cmd-panel" class="hidden">
-    <input id="cmd-input" type="text" placeholder="Type a command…  (Enter to run, Esc to close)" autocomplete="off" />
-    <label class="toggle"><input id="cmd-terminal" type="checkbox" checked /><span>In terminal</span></label>
-    <button id="cmd-run">Run</button>
-    <button id="cmd-open-term" title="Open a terminal in home">Terminal</button>
+    <div class="cmd-row">
+      <input id="cmd-input" type="text" placeholder="Type a command…  (Enter to run, ↑↓ history, Esc to close)" autocomplete="off" />
+      <label class="toggle"><input id="cmd-terminal" type="checkbox" checked /><span>In terminal</span></label>
+      <button id="cmd-run">Run</button>
+      <button id="cmd-open-term" title="Open a terminal in home">Terminal</button>
+    </div>
+    <!-- Confirmation step: running a command is irreversible, so show exactly
+         what will be executed before it is handed to the shell. -->
+    <div id="cmd-confirm" class="hidden">
+      <span class="cmd-confirm-label">Run this command?</span>
+      <code id="cmd-confirm-text"></code>
+      <button id="cmd-confirm-yes">Run it</button>
+      <button id="cmd-confirm-no">Cancel</button>
+    </div>
+    <ul id="cmd-history" class="hidden"></ul>
   </div>
+
+  <!-- Desktop-entry actions for the focused app (Actions= in the .desktop) -->
+  <div id="actions-menu" class="hidden"></div>
 
   <!-- Toast: shown when a command runs -->
   <div id="toast" class="hidden">
@@ -171,18 +185,17 @@
     </div>
   </div>
 
-  <footer id="hint">click: launch · right-click / F: favorite · arrows + Enter: navigate · dbl-click sun: absorb / expel · / search · ` command · Esc: hide</footer>
+  <footer id="hint">click: launch · right-click / F: favorite · A: actions · arrows + Enter: navigate · dbl-click sun: absorb / expel · / search · ` command · Esc: hide</footer>
 
   <script type="importmap">
     {
       "imports": {
         "three": "./vendor/three/build/three.module.js",
-        "three/addons/": "./vendor/three/jsm/"
+        "three/addons/": "./vendor/three/jsm/",
+        "tauri/": "./vendor/tauri/"
       }
     }
   </script>
-  <!-- Bridge must load first so window.universe exists before universe.js runs -->
-  <script src="tauri-bridge.js"></script>
   <script type="module" src="universe.js"></script>
 </body>
 </html>

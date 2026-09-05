@@ -361,8 +361,10 @@ html, body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  /* Column: the input row sits above the confirmation and history list. */
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 10px;
   padding: 14px 18px;
   border-radius: 16px;
@@ -400,6 +402,105 @@ html, body {
 }
 #cmd-panel button:hover { background: rgba(124, 140, 255, 0.45); }
 #cmd-open-term { background: rgba(255,255,255,0.06) !important; }
+
+/* Input + buttons share one row inside the column layout. */
+.cmd-row { display: flex; align-items: center; gap: 10px; }
+
+/* Confirmation step before anything reaches the shell. */
+#cmd-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  font-size: 13px;
+}
+#cmd-confirm.hidden { display: none; }
+.cmd-confirm-label { color: #fbbf24; white-space: nowrap; font-weight: 600; }
+#cmd-confirm-text {
+  flex: 1;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(0,0,0,0.35);
+  padding: 6px 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+#cmd-confirm-yes { background: rgba(251, 191, 36, 0.35) !important; }
+
+/* Recent command history. */
+#cmd-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 190px;
+  overflow-y: auto;
+  border-top: 1px solid var(--glass-border);
+  padding-top: 8px;
+}
+#cmd-history.hidden { display: none; }
+#cmd-history li {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s, color 0.15s;
+}
+#cmd-history li:hover { background: rgba(124, 140, 255, 0.2); color: var(--text); }
+
+/* ---------- desktop-entry actions menu ---------- */
+#actions-menu {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 240px;
+  max-width: min(420px, 80vw);
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  z-index: 45;
+}
+#actions-menu.hidden { display: none; }
+.actions-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-2);
+  padding: 4px 10px 8px;
+  border-bottom: 1px solid var(--glass-border);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#actions-menu button {
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#actions-menu button:hover { background: rgba(124, 140, 255, 0.3); }
+#actions-menu button:focus-visible { border-color: var(--accent); outline: none; }
 
 /* ---------- footer hint ---------- */
 #hint {
