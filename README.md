@@ -12,6 +12,8 @@ you can search, sort and fly through.
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB)](https://tauri.app)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux-333)](#requirements)
 
+![Universe 3D](docs/images/galaxy.jpg)
+
 </div>
 
 ---
@@ -48,8 +50,14 @@ It runs as a tray daemon, so summoning it with a hotkey is instant.
 
 ## Screenshots
 
-> Galaxy layout with several hundred applications, and the system monitor and
-> settings panels open.
+<div align="center">
+
+![System monitor and settings](docs/images/panels.jpg)
+
+*The live system monitor and the settings panel, open over the galaxy layout.
+Five themes, adjustable bloom, starfield and motion.*
+
+</div>
 
 ## Requirements
 
