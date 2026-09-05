@@ -322,6 +322,56 @@ fn window_minimize(window: tauri::Window) {
     let _ = window.minimize();
 }
 
+/// Toggle maximize. A maximized window cannot be dragged anywhere, so this is
+/// what lets the user un-maximize and move it to another monitor.
+#[tauri::command]
+fn window_toggle_maximize(window: tauri::Window) {
+    if window.is_maximized().unwrap_or(false) {
+        let _ = window.unmaximize();
+    } else {
+        let _ = window.maximize();
+    }
+}
+
+/// Move the window to the next monitor, keeping it maximized if it was.
+///
+/// Dragging works, but on a multi-head setup it is far quicker to send the
+/// window across with a keystroke than to un-maximize, drag and re-maximize.
+#[tauri::command]
+fn window_next_monitor(window: tauri::Window) -> Result<bool, String> {
+    let monitors = window.available_monitors().map_err(|e| e.to_string())?;
+    if monitors.len() < 2 {
+        return Ok(false);
+    }
+    let current = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or("no current monitor")?;
+    // Identify the current screen by its origin: names are not always set.
+    let idx = monitors
+        .iter()
+        .position(|m| m.position() == current.position())
+        .unwrap_or(0);
+    let target = &monitors[(idx + 1) % monitors.len()];
+
+    let was_maximized = window.is_maximized().unwrap_or(false);
+    if was_maximized {
+        // A maximized window ignores position changes; drop out first.
+        let _ = window.unmaximize();
+    }
+    window
+        .set_position(tauri::PhysicalPosition::new(
+            target.position().x,
+            target.position().y,
+        ))
+        .map_err(|e| e.to_string())?;
+    if was_maximized {
+        let _ = window.maximize();
+    }
+    let _ = window.set_focus();
+    Ok(true)
+}
+
 /// Bring the window to the front (used by the tray, the global hotkey and a
 /// second launch of the binary).
 fn show_window(app: &tauri::AppHandle) {
@@ -442,6 +492,8 @@ fn main() {
             system_stats,
             window_hide,
             window_minimize,
+            window_toggle_maximize,
+            window_next_monitor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Universe 3D");

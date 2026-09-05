@@ -8,11 +8,13 @@
 <body>
   <canvas id="scene"></canvas>
 
-  <!-- Top bar: search + layout controls + window buttons -->
-  <header id="topbar">
-    <div class="brand">
-      <span class="brand-dot"></span>
-      <span>3D&nbsp;UNIVERSE</span>
+  <!-- Top bar: search + layout controls + window buttons.
+       data-tauri-drag-region makes the bar itself a window drag handle: the
+       window is undecorated, so without it there is nothing to grab. -->
+  <header id="topbar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <span class="brand-dot" data-tauri-drag-region></span>
+      <span data-tauri-drag-region>3D&nbsp;UNIVERSE</span>
     </div>
 
     <input id="search" type="text" placeholder="Search apps…  ( / )" autocomplete="off" />
@@ -185,7 +187,7 @@
     </div>
   </div>
 
-  <footer id="hint">click: launch · right-click / F: favorite · A: actions · arrows + Enter: navigate · dbl-click sun: absorb / expel · / search · ` command · Esc: hide</footer>
+  <footer id="hint">click: launch · right-click / F: favorite · A: actions · arrows + Enter: navigate · dbl-click sun: absorb / expel · drag bar / Shift+M: move window · / search · ` command · Esc: hide</footer>
 
   <script type="importmap">
     {

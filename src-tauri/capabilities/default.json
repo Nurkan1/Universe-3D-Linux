@@ -13,6 +13,12 @@
     "core:window:allow-set-focus",
     "core:window:allow-maximize",
     "shell:allow-open",
-    "global-shortcut:default"
+    "global-shortcut:default",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-set-position",
+    "core:window:allow-current-monitor",
+    "core:window:allow-available-monitors",
+    "core:window:allow-start-dragging"
   ]
 }

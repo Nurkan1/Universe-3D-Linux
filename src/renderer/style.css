@@ -41,10 +41,17 @@ html, body {
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(18px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-  -webkit-app-region: drag;
   z-index: 10;
 }
-#topbar input, #topbar button, #topbar label { -webkit-app-region: no-drag; }
+/* Dragging is driven by data-tauri-drag-region in the markup, not by
+   -webkit-app-region: that is an Electron API and WebKitGTK ignores it, which
+   is why the window could not be moved between screens after the migration.
+   The grab cursor is the affordance for it. */
+#topbar[data-tauri-drag-region] { cursor: grab; }
+#topbar[data-tauri-drag-region]:active { cursor: grabbing; }
+/* Interactive children keep a normal pointer and are never drag handles. */
+#topbar input, #topbar button, #topbar label, #topbar select { cursor: auto; }
+#topbar button, #topbar label { cursor: pointer; }
 
 .brand {
   display: flex;

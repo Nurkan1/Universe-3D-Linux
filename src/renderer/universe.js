@@ -576,6 +576,22 @@ async function updateTooltip() {
 document.getElementById('btn-close').addEventListener('click', () => universe.closeWindow());
 document.getElementById('btn-min').addEventListener('click', () => universe.minimizeWindow());
 
+// Double-clicking the title bar restores/maximizes, the usual desktop
+// behaviour -- and the way to un-maximize so the window can be dragged to
+// another screen at all.
+document.getElementById('topbar').addEventListener('dblclick', (e) => {
+  // Ignore double-clicks that land on a control rather than the bar itself.
+  if (e.target.closest('input, button, label, select')) return;
+  universe.toggleMaximize();
+});
+
+// Send the window to the next monitor. Dragging works too, but on a multi-head
+// setup this is quicker than un-maximize -> drag -> re-maximize.
+async function moveToNextMonitor() {
+  const moved = await universe.nextMonitor();
+  if (!moved) showToast('Only one monitor detected');
+}
+
 const searchInput = document.getElementById('search');
 searchInput.addEventListener('input', () => {
   query = searchInput.value.trim();
@@ -649,6 +665,13 @@ window.addEventListener('keydown', (e) => {
       if (target) showActionsMenu(target);
       break;
     }
+    case 'M':
+      // Shift+M: move the window to the next screen.
+      if (e.shiftKey) {
+        e.preventDefault();
+        moveToNextMonitor();
+      }
+      break;
     default:
   }
 });
