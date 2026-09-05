@@ -13,7 +13,7 @@ you can search, sort and fly through.
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB)](https://tauri.app)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux-333)](#requirements)
 
-![Universe 3D](docs/images/galaxy.jpg)
+![Universe 3D](docs/images/focus.jpg)
 
 </div>
 
@@ -70,6 +70,21 @@ flat list cannot show without hiding things behind a scrollbar.
 Ranking blends launch frequency with recency. On a fresh install, with no usage
 history yet, it falls back to signals from the desktop entries themselves so
 the front grid is useful from the first run.
+
+The difference is easier to see than to describe. The same machine, the same
+few hundred applications, in Galaxy and in Focus:
+
+<div align="center">
+
+![Galaxy layout](docs/images/galaxy.jpg)
+
+*Galaxy — spectacular, and unreadable once the labels overlap.*
+
+![Focus layout](docs/images/focus.jpg)
+
+*Focus — the same apps, legible up front, everything else receding.*
+
+</div>
 
 ## Screenshots
 
