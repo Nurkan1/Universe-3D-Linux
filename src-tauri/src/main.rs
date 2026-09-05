@@ -277,7 +277,7 @@ fn system_stats(monitor: State<Monitor>) -> SystemStats {
     // poll has no baseline and reports zero rather than a boot-sized spike.
     let mut total_rx: u64 = 0;
     let mut total_tx: u64 = 0;
-    for (_iface, data) in networks.iter() {
+    for data in networks.values() {
         total_rx += data.received();
         total_tx += data.transmitted();
     }
