@@ -1,38 +1,60 @@
-# Universo 3D — Dashboard de apps para Linux (Kali / XFCE)
+<div align="center">
 
-Lanzador de aplicaciones en un universo 3D interactivo, construido con **Tauri 2**
-y **Three.js**. Muestra **todas** las apps `.desktop` del sistema, incluidas las
-ocultas (`NoDisplay=true`), como planetas brillantes que puedes ordenar en
-distintas disposiciones.
+# Universe 3D
 
-## Características
+**A 3D application launcher for Linux.**
 
-- **4 disposiciones**: galaxia espiral, esfera, anillos por categoría y rejilla.
-- **Atajo global** (`Super+Space` por defecto): invoca o esconde el universo desde
-  cualquier parte del escritorio.
-- **Búsqueda difusa** (atajo `/`): `gimp` encuentra "GNU Image Manipulation
-  Program". La cámara vuela al mejor resultado; `Enter` lo lanza.
-- **Orden por uso**: los favoritos ocupan las órbitas interiores, seguidos de las
-  apps que más usas (frecuencia + recencia combinadas).
-- **Acciones del `.desktop`** (tecla `A`): modos de lanzamiento extra declarados
-  por la app, como "Nueva ventana privada" de Firefox.
-- **Favoritos** (clic derecho o tecla `F`): halo dorado y órbita junto al sol.
-- **Apps ocultas** marcadas con un anillo turquesa (toggle "Ocultas" para filtrar).
-- **Filtro por categoría** y modo "solo favoritos".
-- **Lanzador de comandos** (atajo `` ` ``): con historial navegable (`↑`/`↓`) y
-  confirmación explícita antes de ejecutar.
-- **Monitor del sistema**: CPU por núcleo, RAM, swap, red y carga en vivo.
-- **5 temas** (Cosmic, Emerald, Sunset, Mono, Matrix) y ajustes de bloom, brillo
-  estelar, nebulosas y velocidad, todo persistente.
-- **Navegación con teclado**: flechas para saltar entre planetas, `Enter` para lanzar.
-- **Animación warp** al lanzar y efecto de agujero negro (doble clic en el sol).
-- **Modo daemon**: queda residente en la bandeja del sistema; `Esc` oculta la
-  ventana y el siguiente clic la muestra al instante.
+Every installed application becomes a glowing planet in an interactive universe
+you can search, sort and fly through.
 
-## Requisitos
+[![CI](https://github.com/Nurkan1/Universe-3D-Linux/actions/workflows/ci.yml/badge.svg)](https://github.com/Nurkan1/Universe-3D-Linux/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB)](https://tauri.app)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-333)](#requirements)
 
-Toolchain de Rust (stable) y Node.js 18+, más las bibliotecas de desarrollo de
-WebKitGTK y GTK:
+</div>
+
+---
+
+## Overview
+
+Universe 3D reads every `.desktop` entry on your system — including the hidden
+ones (`NoDisplay=true`) that normal menus omit — and renders them as planets in
+a navigable 3D scene. It is built with [Tauri 2](https://tauri.app) and
+[Three.js](https://threejs.org): a Rust backend does the scanning and launching,
+a WebGL frontend does the rendering.
+
+It runs as a tray daemon, so summoning it with a hotkey is instant.
+
+## Features
+
+**Navigation**
+- Four layouts: spiral galaxy, sphere, category rings and grid
+- Fuzzy search (`/`) — typing `gimp` finds *GNU Image Manipulation Program*
+- Keyboard navigation with arrow keys, `Enter` to launch
+- Global hotkey (`Super+Space`) to summon or dismiss the window
+- Warp animation on launch, and a black-hole effect on the sun
+
+**Organisation**
+- Favourites (`F` or right-click) pinned into the innermost orbits
+- Usage-aware ordering that blends launch frequency with recency
+- Category filter, favourites-only mode, and a toggle for hidden apps
+- Desktop-entry actions (`A`) such as Firefox's *New Private Window*
+
+**Utilities**
+- Command launcher (`` ` ``) with history and an explicit confirmation step
+- Live system monitor: per-core CPU, RAM, swap, network throughput and load
+- Five themes and adjustable bloom, starfield, nebula and motion settings
+
+## Screenshots
+
+> Galaxy layout with several hundred applications, and the system monitor and
+> settings panels open.
+
+## Requirements
+
+- **Rust** (stable) and **Node.js** 18+
+- WebKitGTK and GTK development libraries:
 
 ```bash
 sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev \
@@ -40,101 +62,117 @@ sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev \
                  build-essential curl wget file pkg-config
 ```
 
-Si no tienes Rust:
+If you do not have Rust:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-## Desarrollo
+## Quick start
 
 ```bash
-npm install     # instala three.js, @tauri-apps/api y el CLI de Tauri
-npm run dev     # compila y abre la app con recarga en caliente
+git clone https://github.com/Nurkan1/Universe-3D-Linux.git
+cd Universe-3D-Linux
+npm install
+npm run dev
 ```
 
-`npm run dev` y `npm run build` ejecutan automáticamente
-`scripts/vendor-three.sh`, que copia Three.js y `@tauri-apps/api` desde
-`node_modules/` a `src/renderer/vendor/` (ignorado por git). El webview los
-importa con un importmap relativo, sin bundler.
-
-Si compilas con `cargo` directamente, ejecuta antes ese script a mano:
-
-```bash
-npm install && bash scripts/vendor-three.sh
-```
-
-## Compilar e instalar
+## Building
 
 ```bash
 npm run build
 ```
 
-Genera los paquetes en `src-tauri/target/release/bundle/`:
+Bundles land in `src-tauri/target/release/bundle/`:
 
 ```bash
-# .deb (recomendado en Kali/Debian/Ubuntu): instala el binario y el .desktop
-sudo dpkg -i src-tauri/target/release/bundle/deb/*.deb
+# Debian / Ubuntu / Kali — installs the binary, icons and menu entry
+sudo dpkg -i "src-tauri/target/release/bundle/deb/Universe 3D_"*_amd64.deb
 
-# o bien el AppImage, portable
+# or the portable AppImage
 chmod +x src-tauri/target/release/bundle/appimage/*.AppImage
 ```
 
-El `.deb` registra la app en el menú de aplicaciones (`Exec=universe-3d`), así
-que no hace falta copiar ningún `.desktop` a mano.
+The `.deb` registers the app in your application menu (`Exec=universe-3d`), so
+no manual `.desktop` file is needed.
 
-### Añadir a la barra de XFCE
+## Keyboard shortcuts
 
-Clic derecho en la barra → **Panel** → **Añadir nuevos elementos…** →
-**Lanzador**, y busca **Universe 3D**.
-
-## Atajos
-
-| Tecla | Acción |
+| Key | Action |
 |---|---|
-| `Super+Space` | Mostrar / ocultar el universo (global, configurable) |
-| `/` | Buscar |
-| `` ` `` | Lanzador de comandos |
-| `A` | Acciones del `.desktop` de la app enfocada |
-| `F` / clic derecho | Marcar como favorito |
-| `↑ ↓ ← →` | Navegar entre planetas |
-| `Enter` | Lanzar la app enfocada |
-| `Esc` | Cerrar panel / ocultar la ventana |
-| Doble clic en el sol | Absorber / expulsar los planetas |
+| `Super+Space` | Show / hide the universe (global, configurable) |
+| `/` | Search |
+| `` ` `` | Command launcher |
+| `A` | Desktop-entry actions for the focused app |
+| `F` / right-click | Toggle favourite |
+| `↑ ↓ ← →` | Move between planets |
+| `Enter` | Launch the focused app |
+| `Shift+M` | Move the window to the next monitor |
+| `Esc` | Close panel / hide the window |
+| Double-click the sun | Absorb / expel the planets |
+| Double-click the bar | Maximise / restore |
 
-## Configuración
+## Configuration
 
-Las preferencias se guardan en `~/.config/universe-3d/prefs.json`
-(favoritos, recientes, contadores de uso, historial de comandos, tema y ajustes
-visuales). Para cambiar el atajo global, añade una clave `hotkey`:
+Preferences live in `~/.config/universe-3d/prefs.json` — favourites, recents,
+launch counts, command history, theme and visual settings. To change the global
+hotkey, add a `hotkey` key:
 
 ```json
 { "hotkey": "Super+D" }
 ```
 
-El índice de iconos se cachea en `~/.cache/universe-3d/icon-index.json` y se
-regenera solo cuando cambian los directorios de iconos del sistema.
+The icon index is cached in `~/.cache/universe-3d/icon-index.json` and rebuilt
+only when the system icon directories change.
 
-## Estructura
+## Architecture
 
-- `src-tauri/src/main.rs` — comandos Tauri: lanzamiento, monitor, prefs, ventana,
-  bandeja y atajo global.
-- `src-tauri/src/desktop.rs` — escaneo de `.desktop`, acciones y resolución de
-  iconos con caché.
-- `src/renderer/` — UI y escena 3D (Three.js).
-- `src/renderer/tauri-bridge.js` — puente `invoke` entre la UI y Rust.
-- `scripts/vendor-three.sh` — vendoriza las dependencias JS al renderer.
+```
+src-tauri/src/main.rs      Tauri commands: launching, monitor, prefs, window,
+                           tray and the global hotkey
+src-tauri/src/desktop.rs   .desktop scanning, actions, cached icon resolution
+src/renderer/universe.js   3D scene, layouts, interaction
+src/renderer/tauri-bridge.js  invoke() bridge between the UI and Rust
+scripts/vendor-three.sh    vendors the JS dependencies into the renderer
+```
 
-## Notas de seguridad
+There is no bundler. `npm run dev` and `npm run build` run
+`scripts/vendor-three.sh`, which copies Three.js and `@tauri-apps/api` from
+`node_modules/` into `src/renderer/vendor/` (gitignored); the webview imports
+them through a relative importmap. If you build with `cargo` directly, run that
+script first.
 
-- El webview corre con una **CSP restrictiva** y `withGlobalTauri` desactivado,
-  de modo que `invoke` no queda expuesto como global del navegador.
-- Las apps se lanzan **sin pasar por la shell**: el `Exec=` del `.desktop` se
-  parsea a `argv` según la especificación XDG, así que los metacaracteres de
-  shell en un `.desktop` malicioso quedan inertes (cubierto por tests).
-- El lanzador de comandos sí usa la shell (es su propósito), pero exige una
-  confirmación explícita mostrando el comando exacto antes de ejecutarlo.
+## Security
 
-## Licencia
+Launching applications and running commands are the sensitive paths, so they
+are handled deliberately:
 
-MIT — ver [LICENSE](LICENSE).
+- **Applications are launched without a shell.** A `.desktop` file's `Exec=`
+  line is parsed into `argv` per the XDG specification and executed directly,
+  so shell metacharacters in an untrusted entry stay inert. Covered by unit
+  tests, including that case.
+- **The webview runs under a restrictive CSP** with `withGlobalTauri` disabled,
+  so injected scripts cannot reach `invoke` through a browser global.
+- **The command launcher does use a shell** — that is its purpose — but only
+  after showing the exact command and requiring an explicit confirmation.
+- **Nothing leaves the machine.** The app makes no network requests; all assets
+  are local and the CSP forbids remote ones.
+
+Found a security issue? Please open an issue, or report it privately through
+GitHub's security advisories.
+
+## Contributing
+
+Contributions are welcome. CI runs `cargo fmt --check`, `cargo clippy -D
+warnings` and `cargo test`, so please make sure those pass locally:
+
+```bash
+cd src-tauri
+cargo fmt --all
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+## License
+
+[MIT](LICENSE) © Nurkan1

@@ -395,7 +395,7 @@ const LAYOUTS = {
   rings(items) {
     const groups = new Map();
     for (const p of items) {
-      const key = p.app.categories[0] || 'Otros';
+      const key = p.app.categories[0] || 'Other';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(p);
     }
