@@ -1,6 +1,6 @@
 {
   "name": "universe-3d-dashboard",
-  "version": "1.7.0",
+  "version": "1.0.0",
   "description": "3D universe app launcher for Kali Linux (Tauri)",
   "license": "MIT",
   "scripts": {

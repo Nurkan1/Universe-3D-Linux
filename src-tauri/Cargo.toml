@@ -1,6 +1,6 @@
 [package]
 name = "universe-3d"
-version = "1.7.0"
+version = "1.0.0"
 description = "3D universe app launcher for Kali Linux"
 authors = ["Nurkan1"]
 license = "MIT"
