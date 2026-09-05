@@ -1081,11 +1081,31 @@ document.getElementById('toast-close').addEventListener('click', () => {
   toast.classList.add('hidden');
 });
 
+// ---------------------------------------------------------------------------
+// Responsive chrome: the top bar wraps onto extra rows on a narrow window, so
+// the side panels cannot assume a fixed offset. Publish its real height as a
+// CSS variable and let the stylesheet position everything from that.
+// ---------------------------------------------------------------------------
+const topbarEl = document.getElementById('topbar');
+
+function syncTopbarHeight() {
+  const bottom = topbarEl.getBoundingClientRect().bottom;
+  document.documentElement.style.setProperty('--topbar-bottom', `${Math.round(bottom)}px`);
+}
+
+// ResizeObserver catches wrapping caused by content changes (a long category
+// name landing in the select) as well as by the window resizing.
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(syncTopbarHeight).observe(topbarEl);
+}
+syncTopbarHeight();
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
+  syncTopbarHeight();
 });
 
 // ---------------------------------------------------------------------------

@@ -19,11 +19,12 @@
 
     <input id="search" type="text" placeholder="Search apps…  ( / )" autocomplete="off" />
 
+    <!-- The label spans are hidden on narrow windows, leaving the icons. -->
     <div id="layouts" class="segmented">
-      <button data-layout="galaxy"  class="active" title="Spiral galaxy">🌌 Galaxy</button>
-      <button data-layout="sphere"  title="Sphere">🪐 Sphere</button>
-      <button data-layout="rings"   title="Rings by category">💍 Rings</button>
-      <button data-layout="grid"    title="Grid">▦ Grid</button>
+      <button data-layout="galaxy"  class="active" title="Spiral galaxy">🌌<span class="layout-label"> Galaxy</span></button>
+      <button data-layout="sphere"  title="Sphere">🪐<span class="layout-label"> Sphere</span></button>
+      <button data-layout="rings"   title="Rings by category">💍<span class="layout-label"> Rings</span></button>
+      <button data-layout="grid"    title="Grid">▦<span class="layout-label"> Grid</span></button>
     </div>
 
     <select id="category-filter" title="Filter by category">
