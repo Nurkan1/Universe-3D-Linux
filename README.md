@@ -114,17 +114,11 @@ chmod +x universe-3d_*_amd64.AppImage
 ./universe-3d_*_amd64.AppImage
 ```
 
-The AppImage bundles the WebKitGTK stack from Ubuntu 22.04, which can clash
-with a newer host: on rolling distributions such as Kali it may fail to start
-with `Could not create surfaceless EGL display`. Launching it as
-
-```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 ./universe-3d_*_amd64.AppImage
-```
-
-works around the crash, but disables the GPU path the 3D scene needs, so the
-window comes up blank. **On a rolling distribution, prefer the `.deb`**, which
-uses the system's own libraries and renders correctly.
+The AppImage is repacked at release time to drop the libraries that must come
+from the host — Wayland, glib, GStreamer and systemd — so it runs on rolling
+distributions as well as on older ones. See
+[`scripts/fix-appimage.sh`](scripts/fix-appimage.sh) for what is removed and
+why.
 
 Every release ships a `SHA256SUMS.txt`; verify a download with
 `sha256sum -c SHA256SUMS.txt`.

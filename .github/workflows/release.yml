@@ -67,6 +67,10 @@ jobs:
           appimage=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
           cp "$appimage" "dist/universe-3d_${version}_amd64.AppImage"
 
+          # Strip the libraries that have to come from the host. Without this
+          # the AppImage only runs on distributions as old as the runner.
+          bash scripts/fix-appimage.sh "dist/universe-3d_${version}_amd64.AppImage"
+
           # Checksums so downloads can be verified.
           (cd dist && sha256sum ./* > SHA256SUMS.txt)
           ls -la dist
