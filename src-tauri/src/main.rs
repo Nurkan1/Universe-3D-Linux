@@ -73,6 +73,12 @@ fn icon_data(icon_path: String) -> Option<String> {
 // Launching
 // ---------------------------------------------------------------------------
 
+/// How long to watch a freshly launched program before assuming it started.
+///
+/// Long enough to catch a wrapper that rejects its arguments and exits, short
+/// enough that launching still feels instant.
+const EARLY_EXIT_GRACE_MS: u64 = 400;
+
 /// Split an `Exec=` line into argv following the XDG Desktop Entry spec's
 /// quoting rules, dropping field codes (%f %F %u %U ...) as we go.
 ///
@@ -85,24 +91,34 @@ fn parse_exec(exec: &str) -> Vec<String> {
     let mut argv: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut has_token = false;
-    let mut in_quotes = false;
+    // The quote character currently open, if any. The spec only defines double
+    // quotes, but real desktop files use single quotes too -- Flatpak's own
+    // exporter writes `Exec=flatpak 'run' 'com.example.App'`, and treating
+    // those as literal characters makes the launch fail with
+    // `''run'' is not a flatpak command`.
+    let mut quote: Option<char> = None;
     let mut chars = exec.chars().peekable();
 
     while let Some(c) = chars.next() {
         match c {
             // Inside double quotes a backslash escapes the next character.
-            '\\' if in_quotes => {
+            // Single quotes are literal, as in the shell.
+            '\\' if quote == Some('"') => {
                 if let Some(next) = chars.next() {
                     current.push(next);
                 }
             }
-            '"' => {
-                in_quotes = !in_quotes;
+            '"' | '\'' if quote.is_none() => {
+                quote = Some(c);
+                has_token = true;
+            }
+            c if Some(c) == quote => {
+                quote = None;
                 has_token = true;
             }
             // Field codes expand to the files/URLs being opened. We always
             // launch without arguments, so they simply vanish.
-            '%' if !in_quotes => match chars.peek() {
+            '%' if quote.is_none() => match chars.peek() {
                 Some('%') => {
                     chars.next();
                     current.push('%');
@@ -118,7 +134,7 @@ fn parse_exec(exec: &str) -> Vec<String> {
                     has_token = true;
                 }
             },
-            c if c.is_whitespace() && !in_quotes => {
+            c if c.is_whitespace() && quote.is_none() => {
                 if has_token {
                     argv.push(std::mem::take(&mut current));
                     has_token = false;
@@ -156,12 +172,56 @@ fn spawn_argv(argv: &[String], in_terminal: bool) -> std::io::Result<()> {
         c.args(args);
         c
     };
-    // Detach: the launcher hides itself right after, and we never reap these.
+    // Detach stdin/stdout, but keep stderr: it is the only explanation we get
+    // when a launcher script exits immediately, and it is worth showing.
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    command.spawn().map(|_| ())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = command.spawn()?;
+
+    // `spawn` only fails when the program cannot be executed at all. An app
+    // that starts and dies a moment later -- a wrapper script rejecting its
+    // arguments, a Flatpak that is not installed -- looks like success, so the
+    // launcher reported one and the app never appeared.
+    //
+    // Give it a short grace period and report an early exit as the failure it
+    // is. Anything still alive after that is assumed to have started; we do not
+    // wait around for it, and we never reap it.
+    std::thread::sleep(std::time::Duration::from_millis(EARLY_EXIT_GRACE_MS));
+
+    match child.try_wait() {
+        // Still running: a successful launch.
+        Ok(None) => Ok(()),
+        Ok(Some(status)) if status.success() => {
+            // Exited cleanly and instantly. Launchers that hand off to an
+            // already-running instance do this, so it is not an error.
+            Ok(())
+        }
+        Ok(Some(status)) => {
+            let mut stderr = String::new();
+            if let Some(mut pipe) = child.stderr.take() {
+                use std::io::Read;
+                let mut buf = Vec::new();
+                let _ = pipe.read_to_end(&mut buf);
+                stderr = String::from_utf8_lossy(&buf).trim().to_string();
+            }
+            let code = status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "signal".into());
+            let detail = if stderr.is_empty() {
+                format!("exited immediately (status {code})")
+            } else {
+                // Keep the first line: these messages are shown in a toast.
+                let first = stderr.lines().next().unwrap_or(&stderr);
+                format!("{first} (status {code})")
+            };
+            Err(std::io::Error::other(detail))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Spawn a user-typed command line. This one *does* go through the shell,
@@ -180,9 +240,12 @@ fn spawn_shell(cmd: &str, in_terminal: bool) -> std::io::Result<()> {
     command.spawn().map(|_| ())
 }
 
+/// Launch an application, reporting why it failed rather than just that it did.
 #[tauri::command]
-fn apps_launch(app: AppInfo) -> bool {
-    spawn_argv(&parse_exec(&app.exec), app.terminal).is_ok()
+fn apps_launch(app: AppInfo) -> Result<bool, String> {
+    spawn_argv(&parse_exec(&app.exec), app.terminal)
+        .map(|_| true)
+        .map_err(|e| e.to_string())
 }
 
 /// Launch one of an entry's `Actions=` entries (e.g. "New Private Window").
@@ -562,6 +625,26 @@ mod tests {
             parse_exec("app | tee /tmp/x"),
             vec!["app", "|", "tee", "/tmp/x"]
         );
+    }
+
+    /// Flatpak's exporter writes single-quoted arguments. Treating them as
+    /// literal characters made every Flatpak-exported app fail to launch with
+    /// `''run'' is not a flatpak command`.
+    #[test]
+    fn honours_single_quotes() {
+        assert_eq!(
+            parse_exec("flatpak 'run' '--command=/app/bin/chrome' 'com.google.Chrome'"),
+            vec![
+                "flatpak",
+                "run",
+                "--command=/app/bin/chrome",
+                "com.google.Chrome"
+            ]
+        );
+        // A double quote inside single quotes is a literal character.
+        assert_eq!(parse_exec(r#"app 'say "hi"'"#), vec!["app", r#"say "hi""#]);
+        // And the reverse.
+        assert_eq!(parse_exec(r#"app "it's here""#), vec!["app", "it's here"]);
     }
 
     #[test]

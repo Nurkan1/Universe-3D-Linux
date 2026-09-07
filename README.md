@@ -201,6 +201,24 @@ hotkey, add a `hotkey` key:
 The icon index is cached in `~/.cache/universe-3d/icon-index.json` and rebuilt
 only when the system icon directories change.
 
+## When an app does not start
+
+The launcher runs applications directly, without a shell. If one fails to
+start, the window stays open and shows what went wrong instead of hiding as if
+it had worked.
+
+To find broken entries before you hit them:
+
+```bash
+scripts/check-desktop-entries.sh          # add --verbose for file paths
+```
+
+It inspects every `.desktop` entry the launcher would show, without launching
+anything, and reports the ones that cannot start: a program missing from
+`PATH`, a Flatpak app that is not installed, or an `Exec=` line whose path
+contains unquoted spaces (a malformed entry that no launcher can run — the fix
+is to quote the path in the `.desktop` file).
+
 ## Architecture
 
 ```

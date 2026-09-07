@@ -657,6 +657,23 @@ function expelPlanets() {
   }
 }
 
+/**
+ * Launch an app and stay visible if it fails.
+ *
+ * The window used to hide the instant the launch was requested, without
+ * waiting for the result, so an app that never started failed in complete
+ * silence -- the launcher simply vanished and nothing appeared.
+ */
+async function launchAndReport(app) {
+  try {
+    await universe.launchApp(app);
+    universe.closeWindow(); // hides; daemon keeps it warm
+  } catch (err) {
+    // Stay on screen: the message is the only clue the user gets.
+    showToast(`${app.name} failed to start: ${err}`);
+  }
+}
+
 function launchWithWarp(p) {
   if (warp) return;
   sfx.playWarp();
@@ -1414,8 +1431,7 @@ function animate() {
       // orbit default -- otherwise launching once knocks focus out of view.
       applyLayoutViewpoint(currentLayout);
       focused = null;
-      universe.launchApp(launched);
-      universe.closeWindow(); // hides; daemon keeps it warm
+      launchAndReport(launched);
     }
   }
 
